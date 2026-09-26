@@ -221,6 +221,8 @@ impl WindowCapture {
             return;
         }
         self.frames_since_extents = 0;
+        // Window managers may re-frame a window (e.g. after a theme change).
+        self.frame = self.toplevel_of(self.win);
         self.extents = self
             .conn
             .get_property(
@@ -361,7 +363,9 @@ impl WindowCapture {
             .and_then(|c| c.reply().ok())
             .map(|o| (o.dst_x as i32 + l as i32, o.dst_y as i32 + t as i32))
             .unwrap_or((0, 0));
-        if draw_cursor && self.xfixes {
+        // Only the recorded window may appear: the pointer is drawn only while
+        // it is really over this window, not over something covering it.
+        if draw_cursor && self.xfixes && self.pointer_on_window() {
             self.draw_cursor(out, w, h, ox, oy);
         }
         Grab::Frame {
@@ -370,6 +374,23 @@ impl WindowCapture {
             width: w,
             height: h,
         }
+    }
+
+    /// Whether the pointer is over this window *and* this window is the
+    /// topmost one there (so it is what the user actually sees/points at).
+    /// The server resolves the top-level under the pointer, honouring input
+    /// shapes — so a ghosted (click-through) window, a window stacked on top
+    /// or a RustCast window all hide the pointer from this recording.
+    fn pointer_on_window(&self) -> bool {
+        let Some(p) = self
+            .conn
+            .query_pointer(self.root)
+            .ok()
+            .and_then(|c| c.reply().ok())
+        else {
+            return false;
+        };
+        p.same_screen && p.child != x11rb::NONE && (p.child == self.frame || p.child == self.win)
     }
 
     /// Draw the pointer onto an image whose top-left is at root `(ox, oy)`.

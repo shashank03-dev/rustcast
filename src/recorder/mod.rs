@@ -1274,9 +1274,85 @@ mod live {
         layers: Vec<(u32, String)>,
         out: &std::path::Path,
     ) -> Result<(), String> {
+        record_window_with(base, ms, layers, out, &cfg())
+    }
+
+    fn record_window_with(
+        base: u32,
+        ms: u64,
+        layers: Vec<(u32, String)>,
+        out: &std::path::Path,
+        config: &RecorderConfig,
+    ) -> Result<(), String> {
         let scene = Arc::new(Scene::default());
         *scene.layers.lock().unwrap() = layers;
-        record_window(base, &cfg(), spec(out), stop_after(ms), scene, || {})
+        record_window(base, config, spec(out), stop_after(ms), scene, || {})
+    }
+
+    /// Whether any pixel in a 25×25 box around (x, y) of the last frame is
+    /// clearly not `rgb` (i.e. something else — like a cursor — is there).
+    fn anything_but(video: &std::path::Path, x: u32, y: u32, rgb: u32) -> bool {
+        let img = video.with_extension("box.png");
+        assert!(
+            std::process::Command::new("ffmpeg")
+                .args(["-loglevel", "error", "-sseof", "-0.3", "-i"])
+                .arg(video)
+                .args(["-frames:v", "1", "-y"])
+                .arg(&img)
+                .status()
+                .unwrap()
+                .success()
+        );
+        let frame = image::open(&img).unwrap().to_rgb8();
+        (y.saturating_sub(12)..(y + 12).min(frame.height()))
+            .flat_map(|py| {
+                (x.saturating_sub(12)..(x + 12).min(frame.width())).map(move |px| (px, py))
+            })
+            .any(|(px, py)| !close(frame.get_pixel(px, py).0, rgb))
+    }
+
+    #[test]
+    #[ignore]
+    fn locked_recording_shows_only_the_window_not_foreign_pointer() {
+        let (conn, _) = x11rb::connect(None).expect("needs DISPLAY");
+        let root = conn.setup().roots[0].root;
+        let base = window(&conn, 60, 60, 420, 320, RED, "lockedapp");
+        let top = window(&conn, 260, 200, 220, 160, BLUE, "otherapp");
+        std::thread::sleep(Duration::from_millis(600));
+        raise(&conn, top.id);
+        std::thread::sleep(Duration::from_millis(300));
+        let (bx, by) = origin(&conn, base.id);
+        let (tx, ty) = origin(&conn, top.id);
+        let with_cursor = RecorderConfig {
+            show_cursor: true,
+            ..cfg()
+        };
+        let dir = tempfile::tempdir().unwrap();
+
+        // Pointer over the window covering the locked one: the recording
+        // must show only the locked window there — no pointer, no overlap.
+        let (px, py) = (tx + 60, ty + 60);
+        conn.warp_pointer(x11rb::NONE, root, 0, 0, 0, 0, px as i16, py as i16)
+            .unwrap();
+        conn.flush().unwrap();
+        let covered = dir.path().join("covered.mp4");
+        record_window_with(base.id, 1200, vec![], &covered, &with_cursor).unwrap();
+        assert!(
+            !anything_but(&covered, (px - bx) as u32, (py - by) as u32, RED),
+            "something other than the locked window appeared where another window covers it"
+        );
+
+        // Pointer really over the locked window: it is part of the recording.
+        let (qx, qy) = (bx + 60, by + 60);
+        conn.warp_pointer(x11rb::NONE, root, 0, 0, 0, 0, qx as i16, qy as i16)
+            .unwrap();
+        conn.flush().unwrap();
+        let visible = dir.path().join("visible.mp4");
+        record_window_with(base.id, 1200, vec![], &visible, &with_cursor).unwrap();
+        assert!(
+            anything_but(&visible, (qx - bx) as u32, (qy - by) as u32, RED),
+            "pointer over the locked window should be recorded"
+        );
     }
 
     #[test]
