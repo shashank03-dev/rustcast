@@ -426,6 +426,17 @@ impl Tile {
         Some(self.theme.clone())
     }
 
+    /// The window's clear color: fully transparent, so the rounded material
+    /// drawn by the view is all that shows. The compositor reads the surface
+    /// as premultiplied alpha, so the theme's background at alpha 0 would
+    /// still add its color (a light theme would clear to solid white).
+    pub fn style(&self, theme: &Theme) -> iced::theme::Style {
+        iced::theme::Style {
+            background_color: iced::Color::TRANSPARENT,
+            text_color: theme.palette().text,
+        }
+    }
+
     /// This handles the subscriptions of the window
     ///
     /// The subscriptions are:

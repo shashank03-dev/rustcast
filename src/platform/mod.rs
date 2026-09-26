@@ -30,6 +30,16 @@ pub fn position_launcher(handle: &WindowHandle) {
     self::linux::position_launcher(handle);
 }
 
+/// Ask the compositor to blur behind the launcher's rounded window.
+pub fn blur_behind(handle: &WindowHandle, logical_width: f32, radius: f32) {
+    self::linux::blur_behind(handle, logical_width, radius);
+}
+
+/// True when the compositor blurs behind windows that ask for it.
+pub fn compositor_blurs() -> bool {
+    self::linux::x11::compositor_blurs()
+}
+
 pub fn simulate_paste(pid: i32) {
     self::linux::simulate_paste(pid);
 }

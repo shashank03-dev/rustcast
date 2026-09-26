@@ -418,6 +418,18 @@ fn update_inner(tile: &mut Tile, message: Message) -> Task<Message> {
             let (old_w, old_h) = crate::app::launcher_size();
             crate::app::set_launcher_size(width, height);
             let resize = window::resize(id, iced::Size { width, height });
+            let resize = if crate::styles::translucent(&tile.config.theme) {
+                resize.chain(
+                    window::run(id, move |handle| {
+                        if let Ok(h) = handle.window_handle() {
+                            crate::platform::blur_behind(&h, width, crate::styles::WINDOW_RADIUS);
+                        }
+                    })
+                    .discard(),
+                )
+            } else {
+                resize
+            };
             // Re-centre when the footprint changes a lot (switching page kinds).
             if (old_w - width).abs() > 1.0 || (old_h - height).abs() > 200.0 {
                 resize.chain(
@@ -565,7 +577,7 @@ fn update_inner(tile: &mut Tile, message: Message) -> Task<Message> {
                 if !tile.visible {
                     tile.last_open = Some(std::time::Instant::now());
                     tile.height = if is_clipboard_hotkey {
-                        ((7 * 55) + 35 + DEFAULT_WINDOW_HEIGHT as usize) as f32
+                        crate::app::results_window_height(7)
                     } else {
                         DEFAULT_WINDOW_HEIGHT
                     };
@@ -595,7 +607,7 @@ fn update_inner(tile: &mut Tile, message: Message) -> Task<Message> {
             tile.page = Page::Settings;
             Task::batch([
                 Task::done(Message::OpenWindow),
-                open_window(((7 * 55) + 35 + DEFAULT_WINDOW_HEIGHT as usize) as f32),
+                open_window(crate::app::results_window_height(7)),
             ])
         }
 
@@ -612,18 +624,12 @@ fn update_inner(tile: &mut Tile, message: Message) -> Task<Message> {
                     }
                     window::latest().map(|x| {
                         let id = x.unwrap();
-                        Message::ResizeWindow(
-                            id,
-                            ((7 * 55) + 35 + DEFAULT_WINDOW_HEIGHT as usize) as f32,
-                        )
+                        Message::ResizeWindow(id, crate::app::results_window_height(7))
                     })
                 }
                 Page::Settings => window::latest().map(|x| {
                     let id = x.unwrap();
-                    Message::ResizeWindow(
-                        id,
-                        ((7 * 55) + 35 + DEFAULT_WINDOW_HEIGHT as usize) as f32,
-                    )
+                    Message::ResizeWindow(id, crate::app::results_window_height(7))
                 }),
                 _ => Task::none(),
             };
@@ -878,7 +884,7 @@ fn update_inner(tile: &mut Tile, message: Message) -> Task<Message> {
                     return window::latest().map(move |x| {
                         Message::ResizeWindow(
                             x.unwrap(),
-                            ((new_display_count * 55) + 35 + DEFAULT_WINDOW_HEIGHT as usize) as f32,
+                            crate::app::results_window_height(new_display_count),
                         )
                     });
                 }
@@ -1109,6 +1115,9 @@ fn update_inner(tile: &mut Tile, message: Message) -> Task<Message> {
                     final_config.theme.text_color = text;
                     final_config.theme.background_color = bg;
                 }
+                SetConfigFields::SetThemeFields(SetConfigThemeFields::Glass(glass)) => {
+                    final_config.theme.glass = glass
+                }
                 SetConfigFields::SetThemeFields(SetConfigThemeFields::TextColor(r, g, b)) => {
                     final_config.theme.text_color = (r, g, b)
                 }
@@ -1177,6 +1186,7 @@ fn update_inner(tile: &mut Tile, message: Message) -> Task<Message> {
                     tile.config.theme.text_color = text;
                     tile.config.theme.background_color = bg;
                 }
+                ResetField::Glass => tile.config.theme.glass = default.theme.glass,
                 ResetField::ShowScrollbar => {
                     tile.config.theme.show_scroll_bar = default.theme.show_scroll_bar
                 }
@@ -1418,7 +1428,7 @@ fn update_inner(tile: &mut Tile, message: Message) -> Task<Message> {
 }
 
 /// Height of the launcher on the recorder page (header + 5 rows + footer).
-const RECORDER_WINDOW_HEIGHT: f32 = ((5 * 55) + 35 + DEFAULT_WINDOW_HEIGHT as usize) as f32;
+const RECORDER_WINDOW_HEIGHT: f32 = crate::app::results_window_height(5);
 
 /// Write the config file in the background (used for quick toggles that
 /// don't go through the settings page's Save button).
@@ -1524,7 +1534,7 @@ fn zero_item_resize_task(id: Id) -> Task<Message> {
 fn resize_task(id: Id, count: u32) -> Task<Message> {
     Task::done(Message::ResizeWindow(
         id,
-        (55 * count) as f32 + DEFAULT_WINDOW_HEIGHT,
+        crate::app::results_window_height(count as usize),
     ))
 }
 
@@ -1539,7 +1549,7 @@ fn resize_for_results_count(id: Id, count: usize) -> Task<Message> {
     let max_elem = min(5, count);
     Task::done(Message::ResizeWindow(
         id,
-        ((max_elem * 55) + 35 + DEFAULT_WINDOW_HEIGHT as usize) as f32,
+        crate::app::results_window_height(max_elem),
     ))
 }
 
@@ -1801,7 +1811,7 @@ fn execute_query(tile: &mut Tile, id: Id) -> Task<Message> {
         return task.chain(Task::batch([
             Task::done(Message::ResizeWindow(
                 id,
-                ((max_elem * 55) + 35 + DEFAULT_WINDOW_HEIGHT as usize) as f32,
+                crate::app::results_window_height(max_elem),
             )),
             Task::done(Message::ChangeFocus(ArrowKey::Left, 1)),
         ]));
