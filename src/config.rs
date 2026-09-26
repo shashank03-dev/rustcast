@@ -128,6 +128,22 @@ impl ThemeMode {
     }
 }
 
+/// Whether the launcher is drawn as translucent glass over a blurred desktop.
+///
+/// - `Auto`: glass when the compositor blurs behind windows (KWin announces
+///   this on the root window), frosted opaque material otherwise.
+/// - `On`: always translucent. For compositors that blur without announcing
+///   it, e.g. picom with `blur-background = true`.
+/// - `Off`: always opaque.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Copy, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum GlassMode {
+    #[default]
+    Auto,
+    On,
+    Off,
+}
+
 /// The settings you can set for the theme
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(default)]
@@ -135,6 +151,7 @@ pub struct Theme {
     pub text_color: (f32, f32, f32),
     pub background_color: (f32, f32, f32),
     pub blur: bool,
+    pub glass: GlassMode,
     pub show_icons: bool,
     pub show_scroll_bar: bool,
     pub font: Option<String>,
@@ -148,6 +165,7 @@ impl Default for Theme {
             text_color: text,
             background_color: bg,
             blur: false,
+            glass: GlassMode::Auto,
             show_icons: true,
             show_scroll_bar: false,
             font: None,
@@ -212,19 +230,24 @@ impl Theme {
         }
     }
 
-    /// Return the font in the theme config of type [`iced::Font`]
+    /// Return the font in the theme config of type [`iced::Font`]. With no
+    /// font configured this is the macOS system font (SF Pro) when installed.
     pub fn font(&self) -> Font {
-        let opt_font_name = self.font.clone();
-        match opt_font_name {
-            Some(font_name) => Font {
-                family: Family::Name(font_name.leak()),
-                ..Default::default()
-            },
-            None => Font {
-                family: Family::SansSerif,
-                ..Default::default()
-            },
+        let family = match self.font.as_deref().map(str::trim) {
+            Some(name) if !name.is_empty() => Family::Name(crate::fonts::intern(name)),
+            _ => crate::fonts::system_family(),
+        };
+        Font {
+            family,
+            ..Default::default()
         }
+    }
+
+    /// True when the background is light, so materials and accents can pick
+    /// their light-appearance variants.
+    pub fn is_light(&self) -> bool {
+        let (r, g, b) = self.background_color;
+        0.2126 * r + 0.7152 * g + 0.0722 * b > 0.5
     }
 }
 
@@ -367,6 +390,25 @@ mod tests {
         assert_eq!(config.main_page, MainPage::Blank);
         assert_eq!(config.recorder_hotkey, "SUPER+SHIFT+R");
         assert!(config.recorder.aspect_lock);
+        assert_eq!(config.theme.glass, GlassMode::Auto);
+    }
+
+    #[test]
+    fn glass_mode_parses_lowercase() {
+        let cfg: Config = toml::from_str("[theme]\nglass = \"off\"\n").unwrap();
+        assert_eq!(cfg.theme.glass, GlassMode::Off);
+    }
+
+    #[test]
+    fn light_background_is_detected() {
+        let (text, bg) = ThemeMode::Light.presets(false);
+        let light = Theme {
+            text_color: text,
+            background_color: bg,
+            ..Theme::default()
+        };
+        assert!(light.is_light());
+        assert!(!Theme::default().is_light());
     }
 
     #[test]

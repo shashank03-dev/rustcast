@@ -5,7 +5,7 @@ use crate::{
     app::pages::prelude::*,
     clipboard::ClipBoardContentType,
     commands::Function,
-    styles::{glass_border, glass_surface, with_alpha},
+    styles::{PRIMARY, label, rim, window_fill, with_alpha},
 };
 
 /// The emoji pages element to render
@@ -55,7 +55,7 @@ pub fn emoji_page(
                         .on_press(Message::RunFunction(Function::CopyToClipboard(
                             ClipBoardContentType::Text(emoji.display_name),
                         )))
-                        .style(move |_, _| emoji_button_style(&value)),
+                        .style(move |_, status| emoji_button_style(&value, status)),
                 )
                 .width(70)
                 .height(70)
@@ -64,11 +64,23 @@ pub fn emoji_page(
                 container(
                     Text::new(emoji.desc)
                         .font(tile_theme.font())
-                        .size(20)
-                        .color(tile_theme.text_color(0.7)),
+                        .size(12)
+                        .color(label(&tile_theme, PRIMARY)),
                 )
+                .padding([4, 8])
                 .style(move |_| container::Style {
-                    background: Some(Background::Color(value_two.bg_color())),
+                    // Tooltips are solid so they read over the emoji grid.
+                    background: Some(Background::Color(with_alpha(window_fill(&value_two), 1.0))),
+                    border: Border {
+                        color: rim(&value_two),
+                        width: 1.0,
+                        radius: Radius::new(7.0),
+                    },
+                    shadow: iced::Shadow {
+                        color: iced::Color::from_rgba(0.0, 0.0, 0.0, 0.25),
+                        offset: iced::Vector::new(0.0, 3.0),
+                        blur_radius: 10.0,
+                    },
                     ..Default::default()
                 }),
                 tooltip::Position::Top,
@@ -80,27 +92,8 @@ pub fn emoji_page(
         column.push(container(emoji_row_element).center_y(70).into());
     }
 
-    let tile_theme_clone = tile_theme.clone();
     container(Column::from_vec(column).spacing(10))
         .padding(10)
-        .style(move |_| container::Style {
-            background: Some(Background::Color(glass_surface(
-                tile_theme_clone.bg_color(),
-                false,
-            ))),
-            text_color: None,
-            border: Border {
-                color: glass_border(tile_theme_clone.text_color(1.0), false),
-                width: 0.5,
-                radius: Radius::new(14.0).top(0),
-            },
-            shadow: iced::Shadow {
-                color: with_alpha(iced::Color::TRANSPARENT, 0.),
-                offset: iced::Vector::new(0.0, 10.0),
-                blur_radius: 28.0,
-            },
-            snap: false,
-        })
         .center_x(WINDOW_WIDTH)
         .into()
 }

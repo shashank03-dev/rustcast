@@ -6,6 +6,7 @@ mod clipboard;
 mod commands;
 mod config;
 mod debounce;
+mod fonts;
 mod jev;
 mod jev_model;
 mod persist;
@@ -162,5 +163,6 @@ fn main() -> iced::Result {
     )
     .subscription(Tile::subscription)
     .theme(Tile::theme)
+    .style(Tile::style)
     .run()
 }

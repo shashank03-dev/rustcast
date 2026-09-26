@@ -5,8 +5,8 @@
 use std::io::Cursor;
 
 use iced::{
-    Alignment,
-    Length::{self, Fill},
+    Alignment, Color,
+    Length::Fill,
     widget::{
         Button, Row, Text, container,
         image::{Handle, Viewer},
@@ -18,7 +18,10 @@ use crate::{
     app::{Message, Page, RUSTCAST_DESC_NAME},
     clipboard::ClipBoardContentType,
     commands::Function,
-    styles::{favourite_button_style, result_button_style, result_row_container_style},
+    styles::{
+        PRIMARY, SECONDARY, favourite_button_style, label, result_button_style,
+        result_row_container_style,
+    },
     utils::icns_data_to_handle,
 };
 
@@ -250,50 +253,59 @@ impl App {
         on_press: Option<Message>,
     ) -> iced::Element<'static, Message> {
         let focused = focussed_id == id_num;
+        // On the accent-filled selection, labels turn white like macOS lists.
+        let (title_color, subtitle_color) = if focused {
+            (Color::WHITE, Color::from_rgba(1.0, 1.0, 1.0, 0.78))
+        } else {
+            (label(&theme, PRIMARY), label(&theme, SECONDARY))
+        };
 
-        // Title + subtitle (Raycast style)
+        // Title + subtitle (Spotlight style: 14pt title, 11pt subtitle)
         let text_block = iced::widget::Column::new()
-            .spacing(2)
+            .spacing(1)
             .push(
                 Text::new(self.display_name)
                     .font(theme.font())
-                    .size(16)
+                    .size(14)
                     .wrapping(Wrapping::None)
-                    .color(theme.text_color(1.0)),
+                    .color(title_color),
             )
             .push(
                 Text::new(self.desc)
                     .font(theme.font())
-                    .size(13)
+                    .size(11)
                     .wrapping(Wrapping::None)
-                    .color(theme.text_color(0.55)),
+                    .color(subtitle_color),
             );
 
         let mut row = Row::new()
             .align_y(Alignment::Center)
             .width(Fill)
             .spacing(10)
-            .height(50);
+            .padding([0, 10])
+            .height(Fill);
 
         if theme.show_icons
             && let Some(icon) = &self.icons
         {
             row = row.push(
-                container(Viewer::new(icon).height(40).width(40))
-                    .width(40)
-                    .height(40),
+                container(Viewer::new(icon).height(30).width(30))
+                    .width(30)
+                    .height(30),
             );
         }
-        row = row.push(container(text_block).width(Fill));
+        row = row.push(container(text_block).width(Fill).clip(true));
 
         let name = self.search_name.clone();
         let theme_clone = theme.clone();
         let is_favourite = self.ranking == -1;
         row = row.push(
-            Button::new(Text::new("♥️").width(Length::Fill).align_x(Alignment::End))
+            Button::new(Text::new("♥").size(13))
                 .on_press_with(move || Message::ToggleFavouriteApp(name.clone()))
-                .width(Length::Fill)
-                .style(move |_, status| favourite_button_style(&theme_clone, status, is_favourite)),
+                .padding([4, 6])
+                .style(move |_, status| {
+                    favourite_button_style(&theme_clone, status, is_favourite, focused)
+                }),
         );
 
         let msg = on_press.or(match self.open_command.clone() {
@@ -308,14 +320,21 @@ impl App {
             .on_press_maybe(msg)
             .style(move |_, _| result_button_style(&theme_clone))
             .width(Fill)
-            .padding(0)
-            .height(50);
+            .height(Fill)
+            .padding(0);
 
-        container(content)
-            .id(format!("result-{}", id_num))
-            .style(move |_| result_row_container_style(&theme, focused))
-            .padding(8)
-            .width(Fill)
-            .into()
+        // The selection pill is inset from the window edge; the outer
+        // container gives the row its fixed height.
+        container(
+            container(content)
+                .style(move |_| result_row_container_style(&theme, focused))
+                .width(Fill)
+                .height(Fill),
+        )
+        .id(format!("result-{}", id_num))
+        .padding([2, 6])
+        .width(Fill)
+        .height(crate::app::RESULT_ROW_HEIGHT)
+        .into()
     }
 }
