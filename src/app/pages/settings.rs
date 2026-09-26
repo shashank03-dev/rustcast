@@ -248,44 +248,6 @@ fn general_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'stat
     );
 
     let theme_clone = theme.clone();
-    let auto_update = settings_row_with_reset(
-        settings_item_row([
-            settings_hint_text(theme.clone(), "Auto update"),
-            checkbox(config.clone().auto_update)
-                .style(move |_, _| settings_checkbox_style(&theme_clone))
-                .on_toggle(move |input| Message::SetConfig(SetConfigFields::SetAutoUpdate(input)))
-                .into(),
-            notice_item(
-                theme.clone(),
-                "If rustcast should automatically update itself",
-            ),
-        ]),
-        ResetField::AutoUpdate,
-        theme.clone(),
-    );
-
-    let theme_clone = theme.clone();
-    let haptic = settings_row_with_reset(
-        Row::from_iter([
-            settings_hint_text(theme.clone(), "Haptic feedback"),
-            checkbox(config.clone().haptic_feedback)
-                .style(move |_, _| settings_checkbox_style(&theme_clone))
-                .on_toggle(|input| Message::SetConfig(SetConfigFields::HapticFeedback(input)))
-                .into(),
-            notice_item(
-                theme.clone(),
-                "If there should be haptic feedback when you type",
-            ),
-        ])
-        .align_y(Alignment::Center)
-        .spacing(SETTINGS_ITEM_COL_SPACING * 2)
-        .padding(SETTINGS_ITEM_PADDING)
-        .height(SETTINGS_ITEM_HEIGHT),
-        ResetField::HapticFeedback,
-        theme.clone(),
-    );
-
-    let theme_clone = theme.clone();
     let tray_icon = settings_row_with_reset(
         settings_item_row([
             settings_hint_text(theme.clone(), "Show menubar icon"),
@@ -399,8 +361,6 @@ fn general_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'stat
         search,
         debounce,
         start_at_login,
-        auto_update,
-        haptic,
         tray_icon,
         clipboard_history,
         cbhist_paste_on_select,
@@ -462,7 +422,7 @@ fn appearance_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'s
             .into(),
             notice_item(
                 theme.clone(),
-                "System follows the macOS appearance automatically",
+                "System follows the desktop color scheme automatically",
             ),
         ]),
         ResetField::ThemeMode,

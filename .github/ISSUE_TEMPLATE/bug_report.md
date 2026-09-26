@@ -21,9 +21,11 @@ happen.
 
 **Screenshots** If applicable, add screenshots to help explain your problem.
 
-**Which macos version? (please complete the following information):**
+**Environment (please complete the following information):**
 
-- OS: [e.g. MacOS Sequoia 15.5]
+- Distro: [e.g. Ubuntu 24.04]
+- Session: [X11 or Wayland (XWayland)]
+- Desktop: [e.g. GNOME 46]
 - Rustcast Version [e.g. v0.7.3]
 
 **Additional context** Add any other context about the problem here.

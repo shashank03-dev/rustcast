@@ -6,15 +6,14 @@ pub mod linux;
 
 pub use self::linux::{
     default_app_paths, events, get_autostart_status, get_installed_apps, is_dark_mode, launching,
-    sanitize_inherited_env, set_activation_policy_accessory, start_at_login, stop_at_login,
-    transform_process_to_ui_element, urlscheme, window,
+    sanitize_inherited_env, start_at_login, stop_at_login, urlscheme, window,
 };
 
 use iced::wgpu::rwh::WindowHandle;
 
 /// Apply platform window configuration (always-on-top / sticky).
 pub fn window_config(handle: &WindowHandle) {
-    self::linux::macos_window_config(handle);
+    self::linux::window_config(handle);
 }
 
 pub fn focus_this_app() {
@@ -33,17 +32,4 @@ pub fn position_launcher(handle: &WindowHandle) {
 
 pub fn simulate_paste(pid: i32) {
     self::linux::simulate_paste(pid);
-}
-
-/// The kinds of haptic patterns that can be performed (no-op on Linux).
-#[allow(dead_code)]
-#[derive(Copy, Clone, Debug)]
-pub enum HapticPattern {
-    Generic,
-    Alignment,
-    LevelChange,
-}
-
-pub fn perform_haptic(pattern: HapticPattern) -> bool {
-    self::linux::perform_haptic(pattern)
 }

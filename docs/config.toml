@@ -14,9 +14,6 @@ clear_on_enter = true
 search_url = "https://google.com/search?q=%s"
 
 
-# Get haptic feedback when typing in the search bar
-haptic_feedback = true
-
 # Show the tray icon
 show_trayicon = true
 
@@ -26,8 +23,8 @@ clipboard_hotkey = "SUPER+SHIFT+2"
 # Create a presentation.sh file and you can make it do pretty much anything 
 # Example usage: 
 # 	- turn on / off your WM in different "modes"
-# 	- have it use brew to start postgres / development servers,
-# 	- enable or disable notifications via apple script
+# 	- start postgres / development servers,
+# 	- enable or disable desktop notifications
 [modes]
 presentation = "~/.config/rustcast/scripts/presentation.sh"
 

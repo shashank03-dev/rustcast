@@ -3,7 +3,6 @@
 toggle_hotkey = "ALT+SPACE"
 placeholder = "Time to be productive!"
 search_url = "https://google.com/search?q=%s"
-haptic_feedback = false
 show_trayicon = true
 shells = []
 clipboard_hotkey = "SUPER+SHIFT+C"

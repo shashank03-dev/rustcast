@@ -73,11 +73,10 @@ the same schema as upstream RustCast, with one added field:
 screenshot_hotkey = "SUPER+SHIFT+S"
 ```
 
-## Known differences from the macOS build
+## Known limitations
 
-- **Calendar `Events` page** is empty — there is no portable Linux equivalent of
-  macOS EventKit.
-- **Haptics** are a no-op.
+- **Calendar `Events` page** is empty; there is no portable Linux calendar source
+  wired up yet.
 - **Window tiling** moves other apps' windows via EWMH; this works for X11/XWayland
   windows. Native-Wayland-only windows cannot be tiled (a Wayland security limit).
 - **Drag-and-drop** drops onto X11/XWayland targets; a drop target that is a

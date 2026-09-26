@@ -15,8 +15,6 @@ pub use discovery::{default_app_paths, get_installed_apps};
 
 use iced::wgpu::rwh::{RawWindowHandle, WindowHandle};
 
-use crate::platform::HapticPattern;
-
 fn autostart_desktop_path() -> Option<std::path::PathBuf> {
     dirs::config_dir().map(|d| d.join("autostart/rustcast.desktop"))
 }
@@ -98,18 +96,9 @@ pub fn sanitize_inherited_env() {
     log::info!("Sanitized AppImage-inherited library paths from environment");
 }
 
-/// No-op on Linux (macOS activation-policy concept has no equivalent).
-pub fn set_activation_policy_accessory() {}
-
-/// No-op on Linux (macOS dock-icon hiding).
-pub fn transform_process_to_ui_element() -> u32 {
-    0
-}
-
-/// Make the launcher window always-on-top + sticky across workspaces, the
-/// Linux analogue of the macOS floating-window config. Extracts the X11 window
-/// id from the raw window handle.
-pub fn macos_window_config(handle: &WindowHandle) {
+/// Make the launcher window always-on-top + sticky across workspaces.
+/// Extracts the X11 window id from the raw window handle.
+pub fn window_config(handle: &WindowHandle) {
     let xid = match handle.as_raw() {
         RawWindowHandle::Xlib(h) => Some(h.window as u32),
         RawWindowHandle::Xcb(h) => Some(h.window.get()),
@@ -178,11 +167,6 @@ pub fn simulate_paste(_pid: i32) {
         std::thread::sleep(std::time::Duration::from_millis(90));
         x11::send_paste();
     });
-}
-
-/// No haptics on Linux.
-pub fn perform_haptic(_pattern: HapticPattern) -> bool {
-    false
 }
 
 /// Detect the system dark-mode preference via GNOME's `color-scheme` gsetting.
