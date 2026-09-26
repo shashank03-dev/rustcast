@@ -10,16 +10,17 @@ use std::time::{Duration, Instant};
 
 use iced::animation::Easing;
 use iced::border::Radius;
+use iced::font::{Family, Weight};
 use iced::widget::{Space, button, container, text};
-use iced::{Background, Border, Color, Element, Length, Shadow, Vector};
+use iced::{Background, Border, Color, Element, Font, Length, Shadow, Vector};
 
 use crate::app::Message;
 use crate::config::Theme;
-use crate::styles::{tint, with_alpha};
+use crate::styles::with_alpha;
 
-/// The accent used for selection and primary actions.
+/// The accent used for selection and primary actions (#2f6fec).
 pub fn accent(a: f32) -> Color {
-    Color::from_rgba(0.22, 0.55, 0.96, a)
+    Color::from_rgba(0.184, 0.435, 0.925, a)
 }
 
 /// The recording red.
@@ -43,6 +44,66 @@ pub fn mix(a: Color, b: Color, t: f32) -> Color {
 
 pub fn lerp(a: f32, b: f32, t: f32) -> f32 {
     a + (b - a) * t
+}
+
+// ----- tokens ---------------------------------------------------------------
+//
+// Surfaces are opaque and derived from the theme (background blended toward
+// the text color), so they read the same over any wallpaper and work in both
+// light and dark mode. Elevation goes window < panel < card < hover < selected.
+
+pub const WINDOW: f32 = 0.035;
+pub const PANEL: f32 = 0.06;
+pub const CARD: f32 = 0.08;
+pub const HOVER: f32 = 0.11;
+pub const SELECTED: f32 = 0.14;
+
+/// Opaque surface at elevation `level` (one of the constants above).
+pub fn surface(theme: &Theme, level: f32) -> Color {
+    mix(
+        with_alpha(theme.bg_color(), 1.0),
+        theme.text_color(1.0),
+        level,
+    )
+}
+
+/// 1px separators and resting borders.
+pub fn hairline(theme: &Theme, fade: f32) -> Color {
+    theme.text_color(0.10 * fade)
+}
+
+/// Text hierarchy: titles and body, supporting detail, hints.
+pub fn text_primary(theme: &Theme, fade: f32) -> Color {
+    theme.text_color(0.96 * fade)
+}
+pub fn text_secondary(theme: &Theme, fade: f32) -> Color {
+    theme.text_color(0.64 * fade)
+}
+pub fn text_tertiary(theme: &Theme, fade: f32) -> Color {
+    theme.text_color(0.44 * fade)
+}
+
+/// The theme's UI font at `weight` (SF Pro Text when configured).
+pub fn font(theme: &Theme, weight: Weight) -> Font {
+    Font {
+        weight,
+        ..theme.font()
+    }
+}
+
+/// Font for large titles (20px and up). SF Pro ships two optical sizes:
+/// Text for UI sizes and Display for headings, so swap to Display here.
+pub fn display_font(theme: &Theme, weight: Weight) -> Font {
+    let base = theme.font();
+    let family = match base.family {
+        Family::Name(name) if name.starts_with("SF Pro") => Family::Name("SF Pro Display"),
+        other => other,
+    };
+    Font {
+        family,
+        weight,
+        ..base
+    }
 }
 
 // ----- motion ---------------------------------------------------------------
@@ -90,24 +151,22 @@ pub fn enter<'a>(content: impl Into<Element<'a, Message>>, t: f32) -> Element<'a
 /// Card surface. `focus` (0‥1, animated) blends in the selection look;
 /// `hovered` adds a lighter lift.
 pub fn card_style(theme: &Theme, focus: f32, hovered: bool, fade: f32) -> container::Style {
-    let base = theme.bg_color();
-    let rest = with_alpha(tint(base, if hovered { 0.10 } else { 0.06 }), 0.62);
-    let selected = with_alpha(tint(base, 0.16), 0.92);
-    let bg = mix(rest, selected, focus);
+    let rest = surface(theme, if hovered { HOVER } else { CARD });
+    let bg = mix(rest, surface(theme, SELECTED), focus);
     container::Style {
-        background: Some(Background::Color(with_alpha(bg, bg.a * fade))),
+        background: Some(Background::Color(with_alpha(bg, fade))),
         border: Border {
             color: with_alpha(
-                mix(theme.text_color(0.10), accent(0.85), focus),
-                (0.10 + 0.75 * focus) * fade,
+                mix(theme.text_color(1.0), accent(1.0), focus),
+                (0.08 + 0.62 * focus) * fade,
             ),
             width: 1.0,
-            radius: Radius::new(12.0),
+            radius: Radius::new(10.0),
         },
         shadow: Shadow {
-            color: Color::from_rgba(0.0, 0.0, 0.0, 0.35 * focus * fade),
-            offset: Vector::new(0.0, 6.0 * focus),
-            blur_radius: 18.0 * focus,
+            color: Color::from_rgba(0.0, 0.0, 0.0, 0.28 * focus * fade),
+            offset: Vector::new(0.0, 4.0 * focus),
+            blur_radius: 14.0 * focus,
         },
         text_color: Some(theme.text_color(fade)),
         snap: false,
@@ -139,43 +198,26 @@ pub fn card_button<'a>(
         })
 }
 
-/// Thin accent bar on the leading edge of the focused card.
-pub fn focus_bar<'a>(focus: f32, height: f32) -> Element<'a, Message> {
-    container(Space::new().width(3).height(height * focus.clamp(0.0, 1.0)))
-        .height(height)
-        .center_y(height)
-        .style(move |_| container::Style {
-            background: Some(Background::Color(accent(focus.clamp(0.0, 1.0)))),
-            border: Border {
-                radius: Radius::new(2.0),
-                ..Border::default()
-            },
-            ..container::Style::default()
-        })
-        .into()
-}
-
-/// Small uppercase pill, e.g. `TEXT`, `IMAGE`, `MINIMIZED`.
+/// Small status chip, e.g. `Text`, `Image`, `Minimized`: tinted fill, no
+/// outline, sentence case.
 pub fn badge<'a>(
     label: impl ToString,
     color: Color,
     theme: &Theme,
     fade: f32,
 ) -> Element<'a, Message> {
-    let font = theme.font();
     container(
-        text(label.to_string().to_uppercase())
-            .size(10)
-            .font(font)
-            .color(with_alpha(color, fade)),
+        text(label.to_string())
+            .size(11)
+            .font(font(theme, Weight::Medium))
+            .color(with_alpha(mix(color, theme.text_color(1.0), 0.25), fade)),
     )
-    .padding([2, 7])
+    .padding([2, 8])
     .style(move |_| container::Style {
-        background: Some(Background::Color(with_alpha(color, 0.14 * fade))),
+        background: Some(Background::Color(with_alpha(color, 0.16 * fade))),
         border: Border {
-            color: with_alpha(color, 0.35 * fade),
-            width: 1.0,
-            radius: Radius::new(8.0),
+            radius: Radius::new(6.0),
+            ..Border::default()
         },
         ..container::Style::default()
     })
@@ -187,20 +229,23 @@ pub fn kbd<'a>(label: impl ToString, theme: &Theme, fade: f32) -> Element<'a, Me
     let t = theme.clone();
     container(
         text(label.to_string())
-            .size(10)
-            .font(theme.font())
-            .color(theme.text_color(0.65 * fade)),
+            .size(11)
+            .font(font(theme, Weight::Medium))
+            .color(text_secondary(theme, fade)),
     )
     .padding([1, 6])
     .style(move |_| container::Style {
-        background: Some(Background::Color(with_alpha(
-            tint(t.bg_color(), 0.14),
-            0.7 * fade,
-        ))),
+        background: Some(Background::Color(with_alpha(surface(&t, HOVER), fade))),
         border: Border {
-            color: t.text_color(0.18 * fade),
+            color: t.text_color(0.14 * fade),
             width: 1.0,
             radius: Radius::new(5.0),
+        },
+        // Key-cap bottom edge.
+        shadow: Shadow {
+            color: Color::from_rgba(0.0, 0.0, 0.0, 0.35 * fade),
+            offset: Vector::new(0.0, 1.0),
+            blur_radius: 0.0,
         },
         ..container::Style::default()
     })
@@ -211,8 +256,8 @@ pub fn kbd<'a>(label: impl ToString, theme: &Theme, fade: f32) -> Element<'a, Me
 pub fn section_label<'a>(label: impl ToString, theme: &Theme, fade: f32) -> Element<'a, Message> {
     text(label.to_string().to_uppercase())
         .size(11)
-        .font(theme.font())
-        .color(theme.text_color(0.45 * fade))
+        .font(font(theme, Weight::Semibold))
+        .color(text_tertiary(theme, fade))
         .into()
 }
 
@@ -282,13 +327,19 @@ pub fn pill_button<'a>(
             } else {
                 0.0
             };
+            // Solid primary, ghost danger (fills only on hover), quiet
+            // secondary on a raised surface.
             let (bg, fg, border) = match tone {
-                Tone::Primary => (accent(0.85 + boost * 0.5), Color::WHITE, accent(1.0)),
-                Tone::Danger => (red(0.16 + boost), red(1.0), red(0.45)),
+                Tone::Primary => (
+                    mix(accent(1.0), Color::WHITE, boost * 0.6),
+                    Color::WHITE,
+                    with_alpha(Color::WHITE, 0.14),
+                ),
+                Tone::Danger => (red(boost * 1.2), red(1.0), Color::TRANSPARENT),
                 Tone::Quiet => (
-                    with_alpha(tint(theme.bg_color(), 0.10 + boost), 0.75),
-                    theme.text_color(0.9),
-                    theme.text_color(0.16),
+                    mix(surface(&theme, HOVER), theme.text_color(1.0), boost * 0.5),
+                    text_primary(&theme, 1.0),
+                    hairline(&theme, 1.0),
                 ),
             };
             button::Style {
@@ -297,9 +348,16 @@ pub fn pill_button<'a>(
                 border: Border {
                     color: border,
                     width: 1.0,
-                    radius: Radius::new(10.0),
+                    radius: Radius::new(8.0),
                 },
-                shadow: Shadow::default(),
+                shadow: match tone {
+                    Tone::Primary => Shadow {
+                        color: with_alpha(accent(1.0), 0.35),
+                        offset: Vector::new(0.0, 2.0),
+                        blur_radius: 10.0,
+                    },
+                    _ => Shadow::default(),
+                },
                 snap: false,
             }
         })
@@ -330,23 +388,112 @@ pub fn glyph<'a>(symbol: &str, color: Color, size: f32, fade: f32) -> Element<'a
 
 /// A full-width panel surface (preview areas, hero banners).
 pub fn panel_style(theme: &Theme, tone: Option<Color>, fade: f32) -> container::Style {
-    let base = with_alpha(tint(theme.bg_color(), 0.05), 0.55);
+    let base = surface(theme, PANEL);
     let bg = match tone {
-        Some(c) => mix(base, with_alpha(c, 0.22), 0.6),
+        Some(c) => mix(base, c, 0.14),
         None => base,
     };
     container::Style {
-        background: Some(Background::Color(with_alpha(bg, bg.a * fade))),
+        background: Some(Background::Color(with_alpha(bg, fade))),
         border: Border {
             color: tone
-                .map(|c| with_alpha(c, 0.45 * fade))
-                .unwrap_or(theme.text_color(0.10 * fade)),
+                .map(|c| with_alpha(c, 0.40 * fade))
+                .unwrap_or(hairline(theme, fade)),
             width: 1.0,
-            radius: Radius::new(14.0),
+            radius: Radius::new(12.0),
         },
         text_color: Some(theme.text_color(fade)),
         ..container::Style::default()
     }
+}
+
+/// Segmented control: a recessed track with the active segment raised.
+/// Each item is (label, count, message); `active` is the selected index.
+pub fn segmented<'a>(
+    items: Vec<(String, usize, Message)>,
+    active: usize,
+    theme: &Theme,
+    fade: f32,
+) -> Element<'a, Message> {
+    let segs = items
+        .into_iter()
+        .enumerate()
+        .map(|(i, (label, count, msg))| {
+            let on = i == active;
+            let t = theme.clone();
+            let content = iced::widget::row![
+                text(label)
+                    .size(12)
+                    .font(font(
+                        theme,
+                        if on { Weight::Semibold } else { Weight::Medium }
+                    ))
+                    .color(if on {
+                        text_primary(theme, fade)
+                    } else {
+                        text_secondary(theme, fade)
+                    }),
+                text(count.to_string())
+                    .size(11)
+                    .font(font(theme, Weight::Medium))
+                    .color(text_tertiary(theme, fade)),
+            ]
+            .spacing(6)
+            .align_y(iced::Alignment::Center);
+            button(content)
+                .padding([4, 11])
+                .on_press(msg)
+                .style(move |_, status| {
+                    let hover = matches!(status, button::Status::Hovered | button::Status::Pressed);
+                    let bg = if on {
+                        Some(Background::Color(with_alpha(
+                            surface(&t, SELECTED + 0.03),
+                            fade,
+                        )))
+                    } else if hover {
+                        Some(Background::Color(with_alpha(surface(&t, HOVER), fade)))
+                    } else {
+                        None
+                    };
+                    button::Style {
+                        background: bg,
+                        text_color: text_primary(&t, fade),
+                        border: Border {
+                            color: if on {
+                                t.text_color(0.10 * fade)
+                            } else {
+                                Color::TRANSPARENT
+                            },
+                            width: 1.0,
+                            radius: Radius::new(7.0),
+                        },
+                        shadow: if on {
+                            Shadow {
+                                color: Color::from_rgba(0.0, 0.0, 0.0, 0.30 * fade),
+                                offset: Vector::new(0.0, 1.0),
+                                blur_radius: 4.0,
+                            }
+                        } else {
+                            Shadow::default()
+                        },
+                        snap: false,
+                    }
+                })
+                .into()
+        });
+    let t = theme.clone();
+    container(iced::widget::row(segs).spacing(2))
+        .padding(3)
+        .style(move |_| container::Style {
+            background: Some(Background::Color(with_alpha(surface(&t, WINDOW), fade))),
+            border: Border {
+                color: hairline(&t, fade),
+                width: 1.0,
+                radius: Radius::new(10.0),
+            },
+            ..container::Style::default()
+        })
+        .into()
 }
 
 /// Fill the remaining width.

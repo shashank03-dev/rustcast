@@ -67,6 +67,19 @@ pub fn active_window() -> Option<u32> {
     x.window_property(x.root, atom).filter(|w| *w != 0)
 }
 
+/// True when the active window belongs to another application, i.e. the user
+/// clicked outside RustCast or switched apps. Stray focus-out events (focus
+/// going nowhere, or staying on one of our own windows) return false.
+pub fn another_app_is_active() -> bool {
+    let Some(win) = active_window() else {
+        return false;
+    };
+    match window_info(win) {
+        Some(info) => info.pid != Some(std::process::id()),
+        None => true,
+    }
+}
+
 /// Raise and focus the given window (used to restore the previously-focused app
 /// before pasting).
 pub fn focus_window(win: u32) -> Option<()> {

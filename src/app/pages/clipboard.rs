@@ -20,6 +20,7 @@ use std::hash::{Hash, Hasher};
 use std::sync::Mutex;
 use std::time::Instant;
 
+use iced::font::Weight;
 use iced::widget::image::{Handle, Image};
 use iced::widget::text::Wrapping;
 use iced::widget::{Scrollable, Space, column, row, scrollable, text};
@@ -34,9 +35,9 @@ use crate::clipboard::ClipBoardContentType;
 use crate::commands::Function;
 
 /// Height of one history card.
-pub const CARD_HEIGHT: f32 = 66.0;
+pub const CARD_HEIGHT: f32 = 58.0;
 /// Card height plus spacing — used to keep the selection scrolled into view.
-pub const CARD_PITCH: f32 = CARD_HEIGHT + 8.0;
+pub const CARD_PITCH: f32 = CARD_HEIGHT + 6.0;
 const LIST_WIDTH: f32 = 320.0;
 /// Longest text shown in the preview (the full text is still copied).
 const PREVIEW_LIMIT: usize = 20_000;
@@ -96,6 +97,33 @@ fn text_stats(t: &str) -> String {
     )
 }
 
+/// Compact stats for a list row: "57 chars · 1 line".
+fn short_stats(t: &str) -> String {
+    let chars = t.chars().count();
+    let lines = t.lines().count().max(1);
+    format!(
+        "{chars} char{} · {lines} line{}",
+        if chars == 1 { "" } else { "s" },
+        if lines == 1 { "" } else { "s" }
+    )
+}
+
+/// A single-line clip that is a URL.
+fn is_link(t: &str) -> bool {
+    let t = t.trim();
+    !t.contains(char::is_whitespace)
+        && (t.starts_with("http://") || t.starts_with("https://") || crate::utils::is_valid_url(t))
+}
+
+/// How a clip is labelled and colored: links, plain text, images.
+fn kind_of(item: &ClipBoardContentType) -> (&'static str, iced::Color) {
+    match item {
+        ClipBoardContentType::Text(t) if is_link(t) => ("Link", ui::accent(1.0)),
+        ClipBoardContentType::Text(_) => ("Text", iced::Color::from_rgb(0.62, 0.63, 0.68)),
+        ClipBoardContentType::Image(_) => ("Image", ui::green(1.0)),
+    }
+}
+
 /// Everything the page needs to render.
 pub struct ClipboardPage<'a> {
     pub visible: Vec<(usize, &'a ClipBoardContentType)>,
@@ -110,52 +138,44 @@ fn filter_count(all: &[ClipBoardContentType], f: ClipFilter) -> usize {
     all.iter().filter(|c| f.matches(c, "")).count()
 }
 
-fn filter_tabs(page: &ClipboardPage, fade: f32) -> Element<'static, Message> {
-    let theme = page.theme.clone();
-    let tabs = ClipFilter::ALL.iter().map(|&f| {
-        let active = f == page.filter;
-        let label = row![
-            text(f.label()).size(12).font(theme.font()),
-            text(filter_count(page.all, f).to_string())
-                .size(11)
-                .font(theme.font())
-                .color(if active {
-                    iced::Color::from_rgba(1.0, 1.0, 1.0, 0.75 * fade)
-                } else {
-                    theme.text_color(0.45 * fade)
-                }),
-        ]
-        .spacing(6)
-        .align_y(Alignment::Center);
-        let tone = if active { Tone::Primary } else { Tone::Quiet };
-        ui::pill_button(label, tone, &theme, Some(Message::SetClipFilter(f)))
-            .padding([5, 12])
-            .into()
-    });
-    row(tabs).spacing(6).align_y(Alignment::Center).into()
-}
-
 fn header(page: &ClipboardPage, now: Instant) -> Element<'static, Message> {
     let t = ui::stagger(page.motion.page_since, now, 0);
     let theme = &page.theme;
     let title = row![
-        text(crate::app::Page::ClipboardHistory.to_string())
-            .size(18)
-            .font(theme.font())
-            .color(theme.text_color(t)),
-        ui::badge(page.all.len(), ui::accent(1.0), theme, t),
+        text("Clipboard")
+            .size(20)
+            .font(ui::display_font(theme, Weight::Semibold))
+            .color(ui::text_primary(theme, t)),
+        text(page.all.len().to_string())
+            .size(13)
+            .font(ui::font(theme, Weight::Medium))
+            .color(ui::text_tertiary(theme, t)),
     ]
-    .spacing(10)
+    .spacing(8)
     .align_y(Alignment::Center);
+    let active = ClipFilter::ALL
+        .iter()
+        .position(|&f| f == page.filter)
+        .unwrap_or(0);
+    let filters = ui::segmented(
+        ClipFilter::ALL
+            .iter()
+            .map(|&f| {
+                (
+                    f.label().to_string(),
+                    filter_count(page.all, f),
+                    Message::SetClipFilter(f),
+                )
+            })
+            .collect(),
+        active,
+        theme,
+        t,
+    );
     ui::enter(
-        row![
-            title,
-            ui::spacer(),
-            filter_tabs(page, t),
-            ui::kbd("← →", theme, t)
-        ]
-        .spacing(10)
-        .align_y(Alignment::Center),
+        row![title, ui::spacer(), filters, ui::kbd("← →", theme, t)]
+            .spacing(10)
+            .align_y(Alignment::Center),
         t,
     )
 }
@@ -170,64 +190,67 @@ fn card(
     let fade = ui::stagger(page.motion.page_since, now, pos + 1);
     let focus = page.motion.focus_amount(pos as u32, page.focus, now);
 
-    let (kind, color) = match item {
-        ClipBoardContentType::Text(_) => ("Text", ui::accent(1.0)),
-        ClipBoardContentType::Image(_) => ("Image", ui::green(1.0)),
-    };
-    let mut top = row![ui::badge(kind, color, theme, fade), ui::spacer()]
-        .align_y(Alignment::Center)
-        .spacing(6);
-    if pos < 9 {
-        top = top.push(ui::kbd(format!("Ctrl {}", pos + 1), theme, fade));
-    }
+    let (_, color) = kind_of(item);
 
-    let body: Element<'static, Message> = match item {
-        ClipBoardContentType::Text(t) => column![
-            text(first_line(t))
-                .size(14)
-                .font(theme.font())
-                .wrapping(Wrapping::None)
-                .color(theme.text_color(0.95 * fade)),
-            text(text_stats(t))
-                .size(11)
-                .font(theme.font())
-                .wrapping(Wrapping::None)
-                .color(theme.text_color(0.45 * fade)),
-        ]
-        .spacing(1)
-        .into(),
-        ClipBoardContentType::Image(img) => row![
+    // Leading tile: a thumbnail for images, a glyph for text and links.
+    let lead: Element<'static, Message> = match item {
+        ClipBoardContentType::Image(img) => container(
             Image::new(image_handle(img))
-                .width(30)
-                .height(30)
+                .width(32)
+                .height(32)
                 .content_fit(ContentFit::Cover)
+                .border_radius(7)
                 .opacity(fade),
-            text(format!("{} × {}", img.width, img.height))
-                .size(13)
-                .font(theme.font())
-                .color(theme.text_color(0.85 * fade)),
-        ]
-        .spacing(8)
-        .align_y(Alignment::Center)
+        )
+        .width(32)
+        .height(32)
         .into(),
+        ClipBoardContentType::Text(_) => {
+            let symbol = if kind_of(item).0 == "Link" {
+                "↗"
+            } else {
+                "¶"
+            };
+            ui::glyph(symbol, color, 32.0, fade)
+        }
     };
 
-    let content = row![
-        ui::focus_bar(focus, CARD_HEIGHT - 20.0),
-        container(column![top, body].spacing(4))
-            .width(Length::Fill)
-            .clip(true),
+    let (title, meta) = match item {
+        ClipBoardContentType::Text(t) => (first_line(t), short_stats(t)),
+        ClipBoardContentType::Image(img) => (
+            "Image".to_string(),
+            format!("{} × {} px", img.width, img.height),
+        ),
+    };
+    let body = column![
+        text(title)
+            .size(14)
+            .font(ui::font(theme, Weight::Medium))
+            .wrapping(Wrapping::None)
+            .color(ui::text_primary(theme, fade)),
+        text(meta)
+            .size(12)
+            .font(ui::font(theme, Weight::Normal))
+            .wrapping(Wrapping::None)
+            .color(ui::text_secondary(theme, fade)),
     ]
-    .spacing(10)
-    .padding([8, 12])
-    .height(CARD_HEIGHT);
+    .spacing(2);
+
+    let mut content = row![lead, container(body).width(Length::Fill).clip(true),]
+        .spacing(12)
+        .padding([0, 12])
+        .height(CARD_HEIGHT)
+        .align_y(Alignment::Center);
+    if pos < 9 {
+        content = content.push(ui::kbd(format!("Ctrl {}", pos + 1), theme, fade));
+    }
 
     let card = ui::card_button(
         content,
         theme,
         focus,
         fade,
-        Some(Message::OpenResult(pos as u32)),
+        Some(Message::SelectResult(pos as u32)),
     )
     .width(Length::Fill);
     ui::enter(card, fade)
@@ -250,20 +273,17 @@ fn preview(
     );
     let fade_in = fade * (0.35 + 0.65 * swap);
 
-    let (kind, color, meta) = match item {
-        ClipBoardContentType::Text(t) => ("Text", ui::accent(1.0), text_stats(t)),
-        ClipBoardContentType::Image(img) => (
-            "Image",
-            ui::green(1.0),
-            format!("{} × {} px", img.width, img.height),
-        ),
+    let (kind, color) = kind_of(item);
+    let meta = match item {
+        ClipBoardContentType::Text(t) => text_stats(t),
+        ClipBoardContentType::Image(img) => format!("{} × {} px", img.width, img.height),
     };
     let head = row![
         ui::badge(kind, color, &theme, fade),
         text(meta)
             .size(12)
-            .font(theme.font())
-            .color(theme.text_color(0.55 * fade)),
+            .font(ui::font(&theme, Weight::Normal))
+            .color(ui::text_secondary(&theme, fade)),
     ]
     .spacing(10)
     .align_y(Alignment::Center);
@@ -274,9 +294,10 @@ fn preview(
             Scrollable::with_direction(
                 container(
                     text(shown)
-                        .size(15)
-                        .font(theme.font())
-                        .color(theme.text_color(0.95 * fade_in)),
+                        .size(14)
+                        .line_height(iced::widget::text::LineHeight::Relative(1.5))
+                        .font(ui::font(&theme, Weight::Normal))
+                        .color(ui::text_primary(&theme, fade_in)),
                 )
                 .padding([4, 2])
                 .width(Length::Fill),
@@ -302,8 +323,13 @@ fn preview(
     };
 
     let copy_label = row![
-        text("Copy").size(13).font(theme.font()),
-        ui::kbd("↵", &theme, 1.0)
+        text("Copy")
+            .size(13)
+            .font(ui::font(&theme, Weight::Semibold)),
+        text("↵")
+            .size(12)
+            .font(ui::font(&theme, Weight::Medium))
+            .color(iced::Color::from_rgba(1.0, 1.0, 1.0, 0.7)),
     ]
     .spacing(8)
     .align_y(Alignment::Center);
@@ -318,7 +344,9 @@ fn preview(
         ),
         ui::spacer(),
         ui::pill_button(
-            text("Delete").size(13).font(theme.font()),
+            text("Delete")
+                .size(13)
+                .font(ui::font(&theme, Weight::Medium)),
             Tone::Danger,
             &theme,
             Some(Message::EditClipboardHistory(Editable::Delete(
@@ -326,7 +354,9 @@ fn preview(
             ))),
         ),
         ui::pill_button(
-            text("Clear").size(13).font(theme.font()),
+            text("Clear All")
+                .size(13)
+                .font(ui::font(&theme, Weight::Medium)),
             Tone::Quiet,
             &theme,
             Some(Message::ClearClipboardHistory),
@@ -342,7 +372,7 @@ fn preview(
                 .spacing(12)
                 .height(Length::Fill),
         )
-        .padding(16)
+        .padding(18)
         .width(Length::Fill)
         .height(Length::Fill)
         .style(move |_| ui::panel_style(&t2, None, fade)),
@@ -356,15 +386,15 @@ fn empty_state(theme: &Theme, message: String, hint: &str, fade: f32) -> Element
         column![
             ui::glyph("⧉", ui::accent(1.0), 64.0, fade),
             text(message)
-                .size(20)
-                .font(theme.font())
+                .size(17)
+                .font(ui::font(theme, Weight::Semibold))
                 .center()
                 .wrapping(Wrapping::WordOrGlyph)
-                .color(theme.text_color(0.9 * fade)),
+                .color(ui::text_primary(theme, fade)),
             text(hint.to_string())
-                .size(12)
-                .font(theme.font())
-                .color(theme.text_color(0.45 * fade)),
+                .size(13)
+                .font(ui::font(theme, Weight::Normal))
+                .color(ui::text_secondary(theme, fade)),
         ]
         .spacing(14)
         .align_x(Alignment::Center),
@@ -428,8 +458,8 @@ pub fn clipboard_page(page: ClipboardPage) -> Element<'static, Message> {
         row![list, right].spacing(12).height(Length::Fill).into()
     };
 
-    container(column![header(&page, now), body].spacing(12))
-        .padding([14, 16])
+    container(column![header(&page, now), body].spacing(14))
+        .padding([16, 16])
         .width(Length::Fill)
         .height(Length::Fill)
         .into()
@@ -444,6 +474,17 @@ mod tests {
         assert_eq!(first_line("\n\n  hello \nworld"), "hello");
         let long = "x".repeat(80);
         assert_eq!(first_line(&long).chars().count(), 61);
+    }
+
+    #[test]
+    fn links_are_detected() {
+        assert!(is_link(
+            "https://github.com/shashank03-dev/scratch-model-lanox.git"
+        ));
+        assert!(is_link("  example.com "));
+        assert!(!is_link("wrote model_meta.json - 398 chars"));
+        assert!(!is_link("A892-2B4B"));
+        assert_eq!(short_stats("hi\nthere"), "8 chars · 2 lines");
     }
 
     #[test]

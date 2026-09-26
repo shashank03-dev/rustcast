@@ -786,12 +786,40 @@ fn update_inner(tile: &mut Tile, message: Message) -> Task<Message> {
                 return Task::none();
             }
 
-            tile.focused = focused;
-            if !focused {
+            if focused {
+                tile.focused = true;
+                return Task::none();
+            }
+            // Don't hide on the focus-out itself: GNOME sends stray ones. Look
+            // again shortly and only close if the user moved to another app.
+            Task::perform(
+                tokio::time::sleep(std::time::Duration::from_millis(150)),
+                move |_| Message::ConfirmFocusLost(wid),
+            )
+        }
+
+        Message::ConfirmFocusLost(wid) => {
+            if !tile.visible {
+                return Task::none();
+            }
+            if crate::platform::linux::x11::another_app_is_active() {
+                let by = crate::platform::linux::x11::active_window()
+                    .and_then(crate::platform::linux::x11::window_info)
+                    .map(|w| w.class)
+                    .unwrap_or_default();
+                info!("Focus moved to another app ({by}); hiding");
+                tile.focused = false;
                 Task::done(Message::HideWindow(wid)).chain(Task::done(Message::ClearSearchQuery))
             } else {
+                info!("Ignored a stray focus-out; staying open");
+                tile.focused = true;
                 Task::none()
             }
+        }
+
+        Message::SelectResult(n) => {
+            tile.focus_id = n;
+            Task::none()
         }
 
         Message::EditClipboardHistory(action) => {
