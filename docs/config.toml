@@ -1,0 +1,68 @@
+# Things you can configure
+
+# Your hotkey that will be used to toggle rustcast
+toggle_hotkey = "ALT+SHIFT+1"
+
+placeholder = "Oopsie Dasies"
+
+# Buffer (all fields are optional bools)
+clear_on_hide = false
+clear_on_enter = true
+
+# The search engine to use, with the default being google:
+# The URL should have a %s to mark where the search arguments will go
+search_url = "https://google.com/search?q=%s"
+
+
+# Get haptic feedback when typing in the search bar
+haptic_feedback = true
+
+# Show the tray icon
+show_trayicon = true
+
+# hotkey for opening clipboard history
+clipboard_hotkey = "SUPER+SHIFT+2"
+
+# Create a presentation.sh file and you can make it do pretty much anything 
+# Example usage: 
+# 	- turn on / off your WM in different "modes"
+# 	- have it use brew to start postgres / development servers,
+# 	- enable or disable notifications via apple script
+[modes]
+presentation = "~/.config/rustcast/scripts/presentation.sh"
+
+# Tips for beginners: You can use GenAI to make these scripts. 
+# While I do that as well, I check what it generates and tune it to my needs.
+# I don't give any guarantee of what the scripts might do to your system
+othermodes = "~/some/path/to/script"
+
+
+[theme]
+
+# As long as the font is installed, you can use it using the exact name (Check in the fontbook app)
+font = "Fira Code"
+
+#the color for the text in rgb format
+text_color = [0.95, 0.95, 0.96] 
+
+#the background color in rgb format
+background_color = [0.11, 0.11, 0.13]
+
+# the background opacity
+background_opacity = 1.0
+
+# if the background should be blurred (not supported right now)
+blur = false
+
+# if the icons should be shown
+show_icons = true
+
+# if the scroll bar should be shown
+show_scroll_bar = true
+
+# searching for `echo abcd > file.txt` will run `echo abcd > file.txt` as the shell command
+[[shells]]
+command = "echo "
+# icon_path is optional
+alias = "Variables 1" # the name that will be displayed in the results
+alias_lc = "var test" # the name used to search for it
