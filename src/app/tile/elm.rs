@@ -4,11 +4,10 @@
 use std::collections::HashMap;
 use std::fs;
 
-use iced::border::Radius;
 use iced::widget::scrollable::{Anchor, Direction, Scrollbar};
 use iced::widget::text::LineHeight;
-use iced::widget::{Column, Row, Scrollable, Text, container, space};
-use iced::{Alignment, Color, Length, Vector, window};
+use iced::widget::{Column, Row, Scrollable, Text, container, space, stack};
+use iced::{Alignment, window};
 use iced::{Element, Task};
 use iced::{Length::Fill, widget::text_input};
 
@@ -24,7 +23,8 @@ use crate::config::Theme;
 use crate::debounce::Debouncer;
 use crate::platform::events::Event;
 use crate::styles::{
-    contents_style, glass_border, glass_surface, results_scrollbar_style, rustcast_text_input_style,
+    SECONDARY, WINDOW_RADIUS, contents_style, label, results_scrollbar_style,
+    rustcast_text_input_style, separator, sheen,
 };
 use crate::{app::pages::clipboard::clipboard_page, platform::get_installed_apps};
 use crate::{
@@ -106,13 +106,24 @@ pub fn view(tile: &Tile, wid: window::Id) -> Element<'_, Message> {
         let title_input = text_input(tile.config.placeholder.as_str(), &tile.query)
             .on_input(move |a| Message::SearchQueryChanged(a, wid))
             .on_paste(move |a| Message::SearchQueryChanged(a, wid))
-            .font(tile.config.theme.font())
+            // Spotlight's field: 22pt SF Pro Display on the bare material.
+            // 20 + 28 + 19 plus the 1px separator keeps the 68px header.
+            .font(crate::app::pages::ui::display_font(
+                &tile.config.theme,
+                iced::font::Weight::Normal,
+            ))
+            .size(22)
             .on_submit(Message::OpenFocused)
             .id("query")
             .width(Fill)
-            .line_height(LineHeight::Relative(1.75))
+            .line_height(LineHeight::Absolute(28.into()))
             .style(move |_, _| rustcast_text_input_style(&tile.config.theme))
-            .padding(20);
+            .padding(iced::Padding {
+                top: 20.,
+                bottom: 19.,
+                left: 20.,
+                right: 20.,
+            });
 
         let scrollbar_direction =
             if !tile.config.theme.show_scroll_bar || tile.page == Page::Settings {
@@ -148,6 +159,7 @@ pub fn view(tile: &Tile, wid: window::Id) -> Element<'_, Message> {
                     )
                 }),
             ))
+            .padding([crate::app::RESULTS_LIST_PADDING, 0.])
             .into(),
         };
 
@@ -157,14 +169,6 @@ pub fn view(tile: &Tile, wid: window::Id) -> Element<'_, Message> {
             }
             Page::ClipboardHistory => tile.clipboard_visible().len(),
             Page::Settings => 0,
-        };
-
-        // This determines the height of the scrollable window
-        let height = match tile.page {
-            Page::ClipboardHistory | Page::Settings => 385,
-            // Height of each emoji is EMOJI_HEIGHT + 20 for padding
-            Page::EmojiSearch => std::cmp::min(tile.results.len().div_ceil(6) * 90, 290),
-            _ => std::cmp::min(tile.results.len() * 60, 290),
         };
 
         let theme = tile.config.theme.clone();
@@ -190,10 +194,12 @@ pub fn view(tile: &Tile, wid: window::Id) -> Element<'_, Message> {
                 ),
                 &tile.config.theme,
             ),
+            // The window is sized to the rows it shows, so the list takes
+            // whatever is left between the field and the footer.
             _ => Scrollable::with_direction(results, scrollbar_direction)
                 .style(move |_, _| results_scrollbar_style(&theme))
                 .id("results")
-                .height(height as u32)
+                .height(Fill)
                 .into(),
         };
 
@@ -212,29 +218,44 @@ pub fn view(tile: &Tile, wid: window::Id) -> Element<'_, Message> {
             }
         };
 
-        let contents = container(
-            Column::new()
-                .push(title_input)
-                .push(body)
-                .push(footer(
-                    tile.config.theme.clone(),
-                    tile.current_mode.clone(),
-                    text,
-                ))
-                .spacing(0),
-        )
-        .style(|_| container::Style {
-            text_color: None,
-            background: None,
-            border: iced::Border {
-                color: Color::TRANSPARENT,
-                width: 0.,
-                radius: Radius::new(15),
-            },
-            ..Default::default()
-        });
+        let has_body = !matches!(tile.page, Page::Main | Page::FileSearch) || results_count > 0;
+        let theme = &tile.config.theme;
+        let contents = Column::new()
+            .push(title_input)
+            // The field's separator only shows when something sits under it;
+            // otherwise the footer's own separator is enough.
+            .push(if has_body {
+                hairline(theme)
+            } else {
+                space().height(1).into()
+            })
+            .push(body)
+            .push(footer(theme.clone(), tile.current_mode.clone(), text))
+            .spacing(0);
 
-        container(contents)
+        // The top-edge highlight floats over the content so it takes no
+        // layout space.
+        let sheen_theme = theme.clone();
+        let sheen = container(
+            container(space().width(Fill).height(1))
+                .style(move |_| container::Style {
+                    background: Some(sheen(&sheen_theme)),
+                    ..Default::default()
+                })
+                .width(Fill),
+        )
+        .padding(iced::Padding {
+            top: 1.,
+            left: WINDOW_RADIUS,
+            right: WINDOW_RADIUS,
+            bottom: 0.,
+        })
+        .width(Fill);
+
+        container(stack![contents, sheen])
+            .width(Fill)
+            .height(Fill)
+            .clip(true)
             .style(|_| contents_style(&tile.config.theme))
             .into()
     } else {
@@ -242,81 +263,56 @@ pub fn view(tile: &Tile, wid: window::Id) -> Element<'_, Message> {
     }
 }
 
-/// Glass surface behind a purpose-built page body, filling the space
-/// between the search field and the footer.
-fn page_surface<'a>(content: Element<'a, Message>, theme: &Theme) -> Element<'a, Message> {
+/// A 1px separatorColor line across the window.
+fn hairline<'a>(theme: &Theme) -> Element<'a, Message> {
     let theme = theme.clone();
-    container(content)
+    container(space().width(Fill).height(1))
         .width(Fill)
-        .height(Fill)
+        .height(1)
         .style(move |_| container::Style {
-            background: Some(iced::Background::Color(glass_surface(
-                theme.bg_color(),
-                false,
-            ))),
+            background: Some(iced::Background::Color(separator(&theme))),
             ..Default::default()
         })
         .into()
 }
 
+/// A purpose-built page body, filling the space between the search field
+/// and the footer. It draws on the window material.
+fn page_surface<'a>(content: Element<'a, Message>, _theme: &Theme) -> Element<'a, Message> {
+    container(content).width(Fill).height(Fill).into()
+}
+
 /// The footer at the bottom displaying the mode and results found, and its styling
 fn footer(theme: Theme, current_mode: String, text: String) -> Element<'static, Message> {
-    let radius = 15.0;
-
     let current_mode = format!(
         "{}{} Mode",
         current_mode.split_at(1).0.to_uppercase(),
         current_mode.split_at(1).1
     );
-    container(
-        Row::new()
-            .push(
-                Text::new(text)
-                    .size(12)
-                    .height(30)
-                    .color(theme.text_color(0.7))
-                    .font(theme.font())
+    let caption = |s: String| {
+        Text::new(s)
+            .size(11)
+            .color(label(&theme, SECONDARY))
+            .font(crate::app::pages::ui::font(
+                &theme,
+                iced::font::Weight::Medium,
+            ))
+    };
+    Column::new()
+        .push(hairline(&theme))
+        .push(
+            container(
+                Row::new()
+                    .push(caption(text))
+                    .push(space().width(Fill))
+                    .push(caption(current_mode))
                     .align_y(Alignment::Center)
-                    .align_x(Alignment::Center),
+                    .width(Fill),
             )
-            .push(
-                Text::new(current_mode)
-                    .size(12)
-                    .height(30)
-                    .color(theme.text_color(0.7))
-                    .font(theme.font())
-                    .width(Fill)
-                    .align_y(Alignment::Center)
-                    .align_x(Alignment::End),
-            )
-            .align_y(Alignment::Center)
-            .padding(4)
-            .width(Fill)
-            .height(Fill),
-    )
-    .align_y(Alignment::Center)
-    .center(Length::Fill)
-    .width(Fill)
-    .padding(5)
-    .height(30)
-    .style(move |_| container::Style {
-        text_color: None,
-        background: Some(iced::Background::Color(glass_surface(
-            theme.bg_color(),
-            false,
-        ))),
-        border: iced::Border {
-            color: glass_border(theme.text_color(1.0), false),
-            width: 0.,
-            radius: Radius::new(radius).top(0.0),
-        },
-
-        shadow: iced::Shadow {
-            color: Color::TRANSPARENT,
-            offset: Vector::ZERO,
-            blur_radius: 0.,
-        },
-        snap: false,
-    })
-    .into()
+            .padding([0, 14])
+            .center_y(29)
+            .width(Fill),
+        )
+        .height(30)
+        .into()
 }

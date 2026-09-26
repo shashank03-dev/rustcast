@@ -12,8 +12,7 @@ use iced::widget::checkbox;
 use iced::widget::radio;
 use iced::widget::text_input;
 
-use crate::styles::tint;
-use crate::styles::with_alpha;
+use crate::styles;
 
 use crate::app::Editable;
 use crate::app::FileDialogAction;
@@ -24,6 +23,7 @@ use crate::app::SetConfigRecorderFields;
 use crate::app::SetConfigThemeFields;
 use crate::app::SettingsTab;
 use crate::commands::Function;
+use crate::config::GlassMode;
 use crate::config::MainPage;
 use crate::config::Shelly;
 use crate::config::ThemeMode;
@@ -31,6 +31,7 @@ use crate::styles::delete_button_style;
 use crate::styles::settings_add_button_style;
 use crate::styles::settings_checkbox_style;
 use crate::styles::settings_container_style;
+use crate::styles::settings_primary_button_style;
 use crate::styles::settings_radio_button_style;
 use crate::styles::settings_save_button_style;
 use crate::styles::settings_slider_style;
@@ -72,6 +73,21 @@ pub fn settings_page(config: Config, settings_tab: SettingsTab) -> Element<'stat
     ])
     .spacing(2)
     .width(Length::Fill);
+    let track_theme = theme.clone();
+    let tabs_row = container(tabs_row)
+        .padding(2)
+        .style(move |_| container::Style {
+            background: Some(Background::Color(styles::fill(
+                &track_theme,
+                styles::QUATERNARY_FILL,
+            ))),
+            border: Border {
+                color: styles::separator(&track_theme),
+                width: 0.5,
+                radius: Radius::new(9.),
+            },
+            ..Default::default()
+        });
 
     let tab_content: Column<'static, Message> = match settings_tab {
         SettingsTab::General => general_tab(config.clone(), theme.clone()),
@@ -127,24 +143,26 @@ fn tab_button(
 fn reset_button(theme: crate::config::Theme, field: ResetField) -> Element<'static, Message> {
     let theme_clone = theme.clone();
     Button::new(
-        Text::new("R")
+        Text::new("↺")
             .align_x(Alignment::Center)
             .align_y(Alignment::Center)
-            .size(13)
+            .size(14)
             .font(theme.font()),
     )
-    .style(move |_, _| button::Style {
-        text_color: theme_clone.text_color(0.5),
-        background: Some(Background::Color(with_alpha(
-            tint(theme_clone.bg_color(), 0.06),
-            0.20,
-        ))),
-        border: Border {
-            color: theme_clone.text_color(0.15),
-            width: 0.5,
-            radius: Radius::new(4),
-        },
-        ..Default::default()
+    .style(move |_, status| {
+        let level = match status {
+            button::Status::Hovered | button::Status::Pressed => styles::TERTIARY_FILL,
+            _ => styles::QUATERNARY_FILL,
+        };
+        button::Style {
+            text_color: styles::label(&theme_clone, styles::SECONDARY),
+            background: Some(Background::Color(styles::fill(&theme_clone, level))),
+            border: Border {
+                radius: Radius::new(6),
+                ..Border::default()
+            },
+            ..Default::default()
+        }
     })
     .width(30)
     .height(26)
@@ -161,7 +179,7 @@ fn general_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'stat
                 .on_input(|input| Message::SetConfig(SetConfigFields::ToggleHotkey(input.clone())))
                 .on_submit(Message::WriteConfig(false))
                 .width(Length::Fill)
-                .style(move |_, _| settings_text_input_item_style(&theme_clone))
+                .style(move |_, status| settings_text_input_item_style(&theme_clone, status))
                 .into(),
             notice_item(theme.clone(), "Use \"+\" as a seperator"),
         ]),
@@ -179,7 +197,7 @@ fn general_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'stat
                 })
                 .on_submit(Message::WriteConfig(false))
                 .width(Length::Fill)
-                .style(move |_, _| settings_text_input_item_style(&theme_clone))
+                .style(move |_, status| settings_text_input_item_style(&theme_clone, status))
                 .into(),
             notice_item(theme.clone(), "Use \"+\" as a seperator"),
         ]),
@@ -195,7 +213,7 @@ fn general_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'stat
                 .on_input(|input| Message::SetConfig(SetConfigFields::PlaceHolder(input.clone())))
                 .on_submit(Message::WriteConfig(false))
                 .width(Length::Fill)
-                .style(move |_, _| settings_text_input_item_style(&theme_clone))
+                .style(move |_, status| settings_text_input_item_style(&theme_clone, status))
                 .into(),
             notice_item(theme.clone(), "What the text box shows when its empty"),
         ]),
@@ -211,7 +229,7 @@ fn general_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'stat
                 .on_input(|input| Message::SetConfig(SetConfigFields::SearchUrl(input.clone())))
                 .on_submit(Message::WriteConfig(false))
                 .width(Length::Fill)
-                .style(move |_, _| settings_text_input_item_style(&theme_clone))
+                .style(move |_, status| settings_text_input_item_style(&theme_clone, status))
                 .into(),
             notice_item(theme.clone(), "Which search engine to use (%s = query)"),
         ]),
@@ -231,7 +249,7 @@ fn general_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'stat
                 })
                 .on_submit(Message::WriteConfig(false))
                 .width(Length::Fill)
-                .style(move |_, _| settings_text_input_item_style(&theme_clone))
+                .style(move |_, status| settings_text_input_item_style(&theme_clone, status))
                 .into(),
             notice_item(
                 theme.clone(),
@@ -247,7 +265,7 @@ fn general_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'stat
         settings_item_row([
             settings_hint_text(theme.clone(), "Start at login"),
             checkbox(config.clone().start_at_login)
-                .style(move |_, _| settings_checkbox_style(&theme_clone))
+                .style(move |_, status| settings_checkbox_style(&theme_clone, status))
                 .on_toggle(Message::ToggleAutoStartup)
                 .into(),
             notice_item(theme.clone(), "If you want rustcast to start on login"),
@@ -261,7 +279,7 @@ fn general_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'stat
         settings_item_row([
             settings_hint_text(theme.clone(), "Show menubar icon"),
             checkbox(config.clone().show_trayicon)
-                .style(move |_, _| settings_checkbox_style(&theme_clone))
+                .style(move |_, status| settings_checkbox_style(&theme_clone, status))
                 .on_toggle(|input| Message::SetConfig(SetConfigFields::ShowMenubarIcon(input)))
                 .into(),
             notice_item(
@@ -278,7 +296,7 @@ fn general_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'stat
         Row::from_iter([
             settings_hint_text(theme.clone(), "Enable Clipboard history"),
             checkbox(config.clone().cbhist)
-                .style(move |_, _| settings_checkbox_style(&theme_clone))
+                .style(move |_, status| settings_checkbox_style(&theme_clone, status))
                 .on_toggle(|input| Message::SetConfig(SetConfigFields::ClipboardHistory(input)))
                 .into(),
             notice_item(
@@ -299,7 +317,7 @@ fn general_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'stat
         Row::from_iter([
             settings_hint_text(theme.clone(), "Paste on select"),
             checkbox(config.clone().cbhist_paste_on_select)
-                .style(move |_, _| settings_checkbox_style(&theme_clone))
+                .style(move |_, status| settings_checkbox_style(&theme_clone, status))
                 .on_toggle(|input| {
                     Message::SetConfig(SetConfigFields::ClipboardPasteOnSelect(input))
                 })
@@ -327,7 +345,7 @@ fn general_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'stat
                 )
                 .style({
                     let theme_clone = theme_clone.clone();
-                    move |_, _| settings_radio_button_style(&theme_clone.clone())
+                    move |_, status| settings_radio_button_style(&theme_clone, status)
                 })
                 .into(),
                 radio(
@@ -338,7 +356,7 @@ fn general_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'stat
                 )
                 .style({
                     let theme_clone = theme_clone.clone();
-                    move |_, _| settings_radio_button_style(&theme_clone.clone())
+                    move |_, status| settings_radio_button_style(&theme_clone, status)
                 })
                 .into(),
                 radio("Events", MainPage::Events, Some(config.main_page), |page| {
@@ -346,13 +364,13 @@ fn general_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'stat
                 })
                 .style({
                     let theme_clone = theme_clone.clone();
-                    move |_, _| settings_radio_button_style(&theme_clone.clone())
+                    move |_, status| settings_radio_button_style(&theme_clone, status)
                 })
                 .into(),
                 radio("Nothing", MainPage::Blank, Some(config.main_page), |page| {
                     Message::SetConfig(SetConfigFields::SetPage(page))
                 })
-                .style(move |_, _| settings_radio_button_style(&theme_clone.clone()))
+                .style(move |_, status| settings_radio_button_style(&theme_clone, status))
                 .into(),
             ])
             .spacing(30)
@@ -396,7 +414,7 @@ fn appearance_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'s
                 )
                 .style({
                     let theme_clone = theme_clone.clone();
-                    move |_, _| settings_radio_button_style(&theme_clone.clone())
+                    move |_, status| settings_radio_button_style(&theme_clone, status)
                 })
                 .into(),
                 radio(
@@ -411,7 +429,7 @@ fn appearance_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'s
                 )
                 .style({
                     let theme_clone = theme_clone.clone();
-                    move |_, _| settings_radio_button_style(&theme_clone.clone())
+                    move |_, status| settings_radio_button_style(&theme_clone, status)
                 })
                 .into(),
                 radio(
@@ -424,7 +442,7 @@ fn appearance_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'s
                         ))
                     },
                 )
-                .style(move |_, _| settings_radio_button_style(&theme_clone.clone()))
+                .style(move |_, status| settings_radio_button_style(&theme_clone, status))
                 .into(),
             ])
             .spacing(30)
@@ -438,12 +456,42 @@ fn appearance_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'s
         theme.clone(),
     );
 
+    let glass_radio = |label: &'static str, mode: GlassMode| -> Element<'static, Message> {
+        let theme_clone = theme.clone();
+        radio(label, mode, Some(config.theme.glass), |mode| {
+            Message::SetConfig(SetConfigFields::SetThemeFields(
+                SetConfigThemeFields::Glass(mode),
+            ))
+        })
+        .style(move |_, status| settings_radio_button_style(&theme_clone, status))
+        .into()
+    };
+    let glass_setting = settings_row_with_reset(
+        settings_item_column([
+            settings_hint_text(theme.clone(), "Glass"),
+            settings_item_row([
+                glass_radio("Automatic", GlassMode::Auto),
+                glass_radio("Always", GlassMode::On),
+                glass_radio("Off", GlassMode::Off),
+            ])
+            .spacing(30)
+            .into(),
+            notice_item(
+                theme.clone(),
+                "Automatic uses translucent glass when the compositor blurs (KDE); \
+                 Always suits picom with blur enabled",
+            ),
+        ]),
+        ResetField::Glass,
+        theme.clone(),
+    );
+
     let theme_clone = theme.clone();
     let show_scrollbar = settings_row_with_reset(
         settings_item_row([
             settings_hint_text(theme.clone(), "Show scrollbar"),
             checkbox(config.theme.show_scroll_bar)
-                .style(move |_, _| settings_checkbox_style(&theme_clone))
+                .style(move |_, status| settings_checkbox_style(&theme_clone, status))
                 .on_toggle(|input| {
                     Message::SetConfig(SetConfigFields::SetThemeFields(
                         SetConfigThemeFields::ShowScrollBar(input),
@@ -461,7 +509,7 @@ fn appearance_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'s
         settings_item_row([
             settings_hint_text(theme.clone(), "Clear on hide"),
             checkbox(config.clone().buffer_rules.clear_on_hide)
-                .style(move |_, _| settings_checkbox_style(&theme_clone))
+                .style(move |_, status| settings_checkbox_style(&theme_clone, status))
                 .on_toggle(move |input| {
                     Message::SetConfig(SetConfigFields::SetBufferFields(
                         SetConfigBufferFields::ClearOnHide(input),
@@ -482,7 +530,7 @@ fn appearance_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'s
         settings_item_row([
             settings_hint_text(theme.clone(), "Clear on enter"),
             checkbox(config.clone().buffer_rules.clear_on_enter)
-                .style(move |_, _| settings_checkbox_style(&theme_clone))
+                .style(move |_, status| settings_checkbox_style(&theme_clone, status))
                 .on_toggle(move |input| {
                     Message::SetConfig(SetConfigFields::SetBufferFields(
                         SetConfigBufferFields::ClearOnEnter(input),
@@ -503,7 +551,7 @@ fn appearance_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'s
         settings_item_row([
             settings_hint_text(theme.clone(), "Show icons"),
             checkbox(config.clone().theme.show_icons)
-                .style(move |_, _| settings_checkbox_style(&theme_clone))
+                .style(move |_, status| settings_checkbox_style(&theme_clone, status))
                 .on_toggle(move |input| {
                     Message::SetConfig(SetConfigFields::SetThemeFields(
                         SetConfigThemeFields::ShowIcons(input),
@@ -531,7 +579,7 @@ fn appearance_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'s
             })
             .on_submit(Message::WriteConfig(false))
             .width(Length::Fill)
-            .style(move |_, _| settings_text_input_item_style(&theme_clone))
+            .style(move |_, status| settings_text_input_item_style(&theme_clone, status))
             .into(),
             notice_item(theme.clone(), "What font rustcast should use"),
         ]),
@@ -549,7 +597,7 @@ fn appearance_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'s
                 })
                 .on_submit(Message::WriteConfig(false))
                 .width(Length::Fill)
-                .style(move |_, _| settings_text_input_item_style(&theme_clone))
+                .style(move |_, status| settings_text_input_item_style(&theme_clone, status))
                 .into(),
             notice_item(
                 theme.clone(),
@@ -583,7 +631,7 @@ fn appearance_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'s
                         ))
                     },
                 )
-                .style(move |_, _| settings_slider_style(&theme_clone_1))
+                .style(move |_, status| settings_slider_style(&theme_clone_1, status))
                 .width((WINDOW_WIDTH / 5.) * 4.)
                 .into(),
                 settings_hint_text(
@@ -601,7 +649,7 @@ fn appearance_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'s
                         ))
                     },
                 )
-                .style(move |_, _| settings_slider_style(&theme_clone_2))
+                .style(move |_, status| settings_slider_style(&theme_clone_2, status))
                 .width((WINDOW_WIDTH / 5.) * 4.)
                 .into(),
                 settings_hint_text(
@@ -619,7 +667,7 @@ fn appearance_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'s
                         ))
                     },
                 )
-                .style(move |_, _| settings_slider_style(&theme_clone_3))
+                .style(move |_, status| settings_slider_style(&theme_clone_3, status))
                 .width((WINDOW_WIDTH / 5.) * 4.)
                 .into(),
                 notice_item(theme.clone(), "Text colour in RGB format"),
@@ -656,7 +704,7 @@ fn appearance_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'s
                         ))
                     },
                 )
-                .style(move |_, _| settings_slider_style(&theme_clone_1))
+                .style(move |_, status| settings_slider_style(&theme_clone_1, status))
                 .width((WINDOW_WIDTH / 5.) * 4.)
                 .into(),
                 settings_hint_text(
@@ -674,7 +722,7 @@ fn appearance_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'s
                         ))
                     },
                 )
-                .style(move |_, _| settings_slider_style(&theme_clone_2))
+                .style(move |_, status| settings_slider_style(&theme_clone_2, status))
                 .width((WINDOW_WIDTH / 5.) * 4.)
                 .into(),
                 settings_hint_text(
@@ -692,7 +740,7 @@ fn appearance_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'s
                         ))
                     },
                 )
-                .style(move |_, _| settings_slider_style(&theme_clone_3))
+                .style(move |_, status| settings_slider_style(&theme_clone_3, status))
                 .width((WINDOW_WIDTH / 5.) * 4.)
                 .into(),
                 notice_item(theme.clone(), "Background colour in RGB format"),
@@ -708,6 +756,7 @@ fn appearance_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'s
 
     Column::from_iter([
         theme_mode_setting,
+        glass_setting,
         show_scrollbar,
         clear_on_hide,
         clear_on_enter,
@@ -736,7 +785,7 @@ fn recorder_text_setting(
                 .on_input(on_input)
                 .on_submit(Message::WriteConfig(false))
                 .width(Length::Fill)
-                .style(move |_, _| settings_text_input_item_style(&theme_clone))
+                .style(move |_, status| settings_text_input_item_style(&theme_clone, status))
                 .into(),
             notice_item(theme.clone(), notice),
         ]),
@@ -757,7 +806,7 @@ fn recorder_checkbox_setting(
         settings_item_row([
             settings_hint_text(theme.clone(), title),
             checkbox(opt.get(&config.recorder))
-                .style(move |_, _| settings_checkbox_style(&theme_clone))
+                .style(move |_, status| settings_checkbox_style(&theme_clone, status))
                 .on_toggle(move |value| {
                     Message::SetConfig(SetConfigFields::SetRecorderFields(
                         SetConfigRecorderFields::Option(opt, value),
@@ -817,7 +866,7 @@ fn recorder_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'sta
                     })
                     .on_submit(Message::WriteConfig(false))
                     .width(Length::Fill)
-                    .style(move |_, _| settings_text_input_item_style(&theme_clone))
+                    .style(move |_, status| settings_text_input_item_style(&theme_clone, status))
                     .into(),
                 Text::new("×")
                     .font(theme.font())
@@ -833,7 +882,7 @@ fn recorder_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'sta
                     })
                     .on_submit(Message::WriteConfig(false))
                     .width(Length::Fill)
-                    .style(move |_, _| settings_text_input_item_style(&theme_clone_2))
+                    .style(move |_, status| settings_text_input_item_style(&theme_clone_2, status))
                     .into(),
             ])
             .spacing(8)
@@ -954,7 +1003,7 @@ fn savebutton(theme: Theme) -> Element<'static, Message> {
             .width(Length::Fill)
             .font(theme.font()),
     )
-    .style(move |_, _| settings_save_button_style(&theme))
+    .style(move |_, status| settings_primary_button_style(&theme, status))
     .width(Length::Fill)
     .on_press(Message::WriteConfig(true))
     .into()
@@ -967,7 +1016,7 @@ fn wiki_button(theme: Theme) -> Element<'static, Message> {
             .width(Length::Fill)
             .font(theme.font()),
     )
-    .style(move |_, _| settings_save_button_style(&theme))
+    .style(move |_, status| settings_save_button_style(&theme, status))
     .width(Length::Fill)
     .on_press(Message::RunFunction(crate::commands::Function::OpenApp(
         std::env::var("HOME").unwrap_or("".to_string()) + "/.config/rustcast/config.toml",
@@ -983,7 +1032,7 @@ fn copy_config_button(config: Box<Config>) -> Element<'static, Message> {
             .width(Length::Fill)
             .font(theme.font()),
     )
-    .style(move |_, _| settings_save_button_style(&theme))
+    .style(move |_, status| settings_save_button_style(&theme, status))
     .width(Length::Fill)
     .on_press(Message::RunFunction(Function::CopyToClipboard(
         crate::clipboard::ClipBoardContentType::Text(
@@ -998,7 +1047,8 @@ fn settings_hint_text(theme: Theme, text: impl ToString) -> Element<'static, Mes
 
     Text::new(text)
         .font(theme.font())
-        .color(theme.text_color(0.7))
+        .size(13)
+        .color(styles::label(&theme, styles::PRIMARY))
         .into()
 }
 
@@ -1023,8 +1073,8 @@ fn settings_item_row(
 fn notice_item(theme: Theme, notice: impl ToString) -> Element<'static, Message> {
     Text::new(notice.to_string())
         .font(theme.font())
-        .color(theme.text_color(0.7))
-        .size(10)
+        .color(styles::label(&theme, styles::SECONDARY))
+        .size(11)
         .width(Length::Fill)
         .align_x(Alignment::End)
         .into()
@@ -1066,7 +1116,7 @@ fn aliases_item(aliases: HashMap<String, String>, theme: &Theme) -> Element<'sta
                         .on_press(Message::SetConfig(SetConfigFields::Aliases(
                             Editable::Delete((key.clone(), value.clone())),
                         )))
-                        .style(move |_, _| delete_button_style(&theme_clone_2))
+                        .style(move |_, status| delete_button_style(&theme_clone_2, status))
                         .into(),
                 ])
                 .spacing(10)
@@ -1082,7 +1132,7 @@ fn aliases_item(aliases: HashMap<String, String>, theme: &Theme) -> Element<'sta
                 .align_x(Alignment::Center)
                 .align_y(Alignment::Center),
         )
-        .style(move |_, _| settings_add_button_style(&theme_clone.clone()))
+        .style(move |_, status| settings_add_button_style(&theme_clone, status))
         .on_press(Message::SetConfig(SetConfigFields::Aliases(
             Editable::Create((String::new(), String::new())),
         )))
@@ -1109,7 +1159,7 @@ fn search_dirs_item(theme: &Theme, search_dirs: Vec<String>) -> Element<'static,
                             .on_press(Message::SetConfig(SetConfigFields::SearchDirs(
                                 Editable::Delete(dir.clone()),
                             )))
-                            .style(move |_, _| delete_button_style(&theme_clone_2))
+                            .style(move |_, status| delete_button_style(&theme_clone_2, status))
                             .into(),
                     ])
                     .spacing(10)
@@ -1174,13 +1224,13 @@ fn modes_item(modes: HashMap<String, String>, theme: &Theme) -> Element<'static,
                         .on_press(Message::OpenFileDialog(FileDialogAction::PickModeFile(
                             key.to_owned(),
                         )))
-                        .style(move |_, _| settings_add_button_style(&theme_clone_1.clone()))
+                        .style(move |_, status| settings_add_button_style(&theme_clone_1, status))
                         .into(),
                     Button::new("Delete")
                         .on_press(Message::SetConfig(SetConfigFields::Modes(
                             Editable::Delete((key.clone(), value.clone())),
                         )))
-                        .style(move |_, _| delete_button_style(&theme_clone_2))
+                        .style(move |_, status| delete_button_style(&theme_clone_2, status))
                         .into(),
                 ])
                 .spacing(10)
@@ -1199,7 +1249,7 @@ fn modes_item(modes: HashMap<String, String>, theme: &Theme) -> Element<'static,
         .on_press(Message::SetConfig(SetConfigFields::Modes(
             Editable::Create((String::new(), String::new())),
         )))
-        .style(move |_, _| settings_add_button_style(&theme_clone.clone()))
+        .style(move |_, status| settings_add_button_style(&theme_clone, status))
         .into(),
     ])
     .spacing(10)
@@ -1214,13 +1264,13 @@ fn dir_picker_button(directory: String, dir: &str, theme: Theme) -> Button<'stat
         .on_press(Message::OpenFileDialog(FileDialogAction::EditSearchDir(
             directory.clone(),
         )))
-        .style(move |_, _| settings_add_button_style(&theme.clone()))
+        .style(move |_, status| settings_add_button_style(&theme, status))
 }
 
 fn dir_adder_button(dir: &str, theme: Theme) -> Button<'static, Message> {
     Button::new(Text::new(dir.to_owned()))
         .on_press(Message::OpenFileDialog(FileDialogAction::AddSearchDir))
-        .style(move |_, _| settings_add_button_style(&theme.clone()))
+        .style(move |_, status| settings_add_button_style(&theme, status))
 }
 
 fn shell_commands_item(shells: Vec<Shelly>, theme: Theme) -> Element<'static, Message> {
@@ -1236,7 +1286,7 @@ fn shell_commands_item(shells: Vec<Shelly>, theme: Theme) -> Element<'static, Me
                     .align_x(Alignment::Center)
                     .align_y(Alignment::Center),
             )
-            .style(move |_, _| settings_add_button_style(&theme_clone.clone()))
+            .style(move |_, status| settings_add_button_style(&theme_clone, status))
             .on_press(Message::SetConfig(SetConfigFields::ShellCommands(
                 Editable::Create(Shelly::default()),
             ))),
@@ -1356,7 +1406,7 @@ impl Shelly {
                     )))
                     .style({
                         let theme = theme.clone();
-                        move |_, _| delete_button_style(&theme)
+                        move |_, status| delete_button_style(&theme, status)
                     })
                     .into(),
                 notice_item(theme.clone(), "Icon path and hotkey are optional"),

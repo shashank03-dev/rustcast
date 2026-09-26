@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use iced::animation::Easing;
 use iced::border::Radius;
-use iced::font::{Family, Weight};
+use iced::font::Weight;
 use iced::widget::{Space, button, container, text};
 use iced::{Background, Border, Color, Element, Font, Length, Shadow, Vector};
 
@@ -18,28 +18,21 @@ use crate::app::Message;
 use crate::config::Theme;
 use crate::styles::with_alpha;
 
-/// The accent used for selection and primary actions (#2f6fec).
+pub use crate::styles::{faded, mix};
+
+/// The accent used for selection and primary actions: macOS systemBlue.
 pub fn accent(a: f32) -> Color {
-    Color::from_rgba(0.184, 0.435, 0.925, a)
+    Color::from_rgba(0.039, 0.518, 1.0, a)
 }
 
-/// The recording red.
+/// The recording red (systemRed).
 pub fn red(a: f32) -> Color {
-    Color::from_rgba(0.95, 0.26, 0.21, a)
+    Color::from_rgba(1.0, 0.271, 0.227, a)
 }
 
+/// systemGreen.
 pub fn green(a: f32) -> Color {
-    Color::from_rgba(0.30, 0.78, 0.45, a)
-}
-
-pub fn mix(a: Color, b: Color, t: f32) -> Color {
-    let t = t.clamp(0.0, 1.0);
-    Color {
-        r: a.r + (b.r - a.r) * t,
-        g: a.g + (b.g - a.g) * t,
-        b: a.b + (b.b - a.b) * t,
-        a: a.a + (b.a - a.a) * t,
-    }
+    Color::from_rgba(0.188, 0.820, 0.345, a)
 }
 
 pub fn lerp(a: f32, b: f32, t: f32) -> f32 {
@@ -48,28 +41,25 @@ pub fn lerp(a: f32, b: f32, t: f32) -> f32 {
 
 // ----- tokens ---------------------------------------------------------------
 //
-// Surfaces are opaque and derived from the theme (background blended toward
-// the text color), so they read the same over any wallpaper and work in both
-// light and dark mode. Elevation goes window < panel < card < hover < selected.
+// Surfaces are systemFill-style overlays on the window material (see
+// `styles`), so they stay translucent over glass and solid over the opaque
+// material, in light and dark mode alike. Elevation goes
+// window < panel < card < hover < selected.
 
 pub const WINDOW: f32 = 0.035;
-pub const PANEL: f32 = 0.06;
-pub const CARD: f32 = 0.08;
-pub const HOVER: f32 = 0.11;
+pub const PANEL: f32 = 0.05;
+pub const CARD: f32 = 0.07;
+pub const HOVER: f32 = 0.10;
 pub const SELECTED: f32 = 0.14;
 
-/// Opaque surface at elevation `level` (one of the constants above).
+/// Surface overlay at elevation `level` (one of the constants above).
 pub fn surface(theme: &Theme, level: f32) -> Color {
-    mix(
-        with_alpha(theme.bg_color(), 1.0),
-        theme.text_color(1.0),
-        level,
-    )
+    crate::styles::fill(theme, level)
 }
 
 /// 1px separators and resting borders.
 pub fn hairline(theme: &Theme, fade: f32) -> Color {
-    theme.text_color(0.10 * fade)
+    faded(crate::styles::separator(theme), fade)
 }
 
 /// Text hierarchy: titles and body, supporting detail, hints.
@@ -92,15 +82,12 @@ pub fn font(theme: &Theme, weight: Weight) -> Font {
 }
 
 /// Font for large titles (20px and up). SF Pro ships two optical sizes:
-/// Text for UI sizes and Display for headings, so swap to Display here.
+/// Text for UI sizes and Display for headings, so swap to Display here when
+/// it is installed.
 pub fn display_font(theme: &Theme, weight: Weight) -> Font {
     let base = theme.font();
-    let family = match base.family {
-        Family::Name(name) if name.starts_with("SF Pro") => Family::Name("SF Pro Display"),
-        other => other,
-    };
     Font {
-        family,
+        family: crate::fonts::display_variant(base.family),
         weight,
         ..base
     }
@@ -152,9 +139,10 @@ pub fn enter<'a>(content: impl Into<Element<'a, Message>>, t: f32) -> Element<'a
 /// `hovered` adds a lighter lift.
 pub fn card_style(theme: &Theme, focus: f32, hovered: bool, fade: f32) -> container::Style {
     let rest = surface(theme, if hovered { HOVER } else { CARD });
-    let bg = mix(rest, surface(theme, SELECTED), focus);
+    // Selected cards take an accent tint, like a focused macOS list row.
+    let bg = mix(rest, accent(0.22), focus);
     container::Style {
-        background: Some(Background::Color(with_alpha(bg, fade))),
+        background: Some(Background::Color(faded(bg, fade))),
         border: Border {
             color: with_alpha(
                 mix(theme.text_color(1.0), accent(1.0), focus),
@@ -164,9 +152,9 @@ pub fn card_style(theme: &Theme, focus: f32, hovered: bool, fade: f32) -> contai
             radius: Radius::new(10.0),
         },
         shadow: Shadow {
-            color: Color::from_rgba(0.0, 0.0, 0.0, 0.28 * focus * fade),
-            offset: Vector::new(0.0, 4.0 * focus),
-            blur_radius: 14.0 * focus,
+            color: Color::from_rgba(0.0, 0.0, 0.0, 0.18 * focus * fade),
+            offset: Vector::new(0.0, 3.0 * focus),
+            blur_radius: 10.0 * focus,
         },
         text_color: Some(theme.text_color(fade)),
         snap: false,
@@ -235,7 +223,7 @@ pub fn kbd<'a>(label: impl ToString, theme: &Theme, fade: f32) -> Element<'a, Me
     )
     .padding([1, 6])
     .style(move |_| container::Style {
-        background: Some(Background::Color(with_alpha(surface(&t, HOVER), fade))),
+        background: Some(Background::Color(faded(surface(&t, HOVER), fade))),
         border: Border {
             color: t.text_color(0.14 * fade),
             width: 1.0,
@@ -394,7 +382,7 @@ pub fn panel_style(theme: &Theme, tone: Option<Color>, fade: f32) -> container::
         None => base,
     };
     container::Style {
-        background: Some(Background::Color(with_alpha(bg, fade))),
+        background: Some(Background::Color(faded(bg, fade))),
         border: Border {
             color: tone
                 .map(|c| with_alpha(c, 0.40 * fade))
@@ -446,12 +434,9 @@ pub fn segmented<'a>(
                 .style(move |_, status| {
                     let hover = matches!(status, button::Status::Hovered | button::Status::Pressed);
                     let bg = if on {
-                        Some(Background::Color(with_alpha(
-                            surface(&t, SELECTED + 0.03),
-                            fade,
-                        )))
+                        Some(Background::Color(faded(surface(&t, SELECTED + 0.03), fade)))
                     } else if hover {
-                        Some(Background::Color(with_alpha(surface(&t, HOVER), fade)))
+                        Some(Background::Color(faded(surface(&t, HOVER), fade)))
                     } else {
                         None
                     };
@@ -485,7 +470,7 @@ pub fn segmented<'a>(
     container(iced::widget::row(segs).spacing(2))
         .padding(3)
         .style(move |_| container::Style {
-            background: Some(Background::Color(with_alpha(surface(&t, WINDOW), fade))),
+            background: Some(Background::Color(faded(surface(&t, WINDOW), fade))),
             border: Border {
                 color: hairline(&t, fade),
                 width: 1.0,

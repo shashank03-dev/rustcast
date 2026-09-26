@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use crate::app::apps::{App, AppCommand, ICNS_ICON};
 use crate::commands::Function;
-use crate::config::{Config, MainPage, Shelly, ThemeMode};
+use crate::config::{Config, GlassMode, MainPage, Shelly, ThemeMode};
 use crate::debounce::DebouncePolicy;
 use crate::platform::launching::Shortcut;
 use crate::utils::icns_data_to_handle;
@@ -23,6 +23,21 @@ pub const WINDOW_WIDTH: f32 = 500.;
 
 /// The default window height
 pub const DEFAULT_WINDOW_HEIGHT: f32 = 100.;
+
+/// Height of one search result row, selection inset included.
+pub const RESULT_ROW_HEIGHT: f32 = 52.;
+
+/// Space above and below the results list.
+pub const RESULTS_LIST_PADDING: f32 = 6.;
+
+/// Launcher height showing `rows` result rows under the search field.
+pub const fn results_window_height(rows: usize) -> f32 {
+    if rows == 0 {
+        DEFAULT_WINDOW_HEIGHT
+    } else {
+        DEFAULT_WINDOW_HEIGHT + rows as f32 * RESULT_ROW_HEIGHT + 2. * RESULTS_LIST_PADDING
+    }
+}
 
 /// The clipboard history page gets a big, purpose-built window.
 pub const CLIPBOARD_WIDTH: f32 = 860.;
@@ -210,6 +225,7 @@ pub enum ResetField {
     TextColor,
     BackgroundColor,
     ThemeMode,
+    Glass,
     Aliases,
     Modes,
     SearchDirs,
@@ -369,6 +385,7 @@ pub enum SetConfigThemeFields {
     ShowIcons(bool),
     Font(String),
     ThemeMode(ThemeMode),
+    Glass(GlassMode),
 }
 
 #[derive(Debug, Clone)]
@@ -385,7 +402,10 @@ pub fn default_settings() -> Settings {
         minimizable: false,
         level: window::Level::AlwaysOnTop,
         transparent: true,
-        blur: true,
+        // winit's blur asks for the whole window rectangle, which shows
+        // blurred square corners. The rounded region is requested per resize
+        // instead, and only when the glass is translucent.
+        blur: false,
         // Map centred on the active monitor so the window never flashes at the
         // window manager's default spot; `position_launcher` then nudges it up
         // to the Spotlight/Raycast upper-third anchor once it is mapped.
