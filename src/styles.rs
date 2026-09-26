@@ -32,9 +32,9 @@ pub fn rustcast_text_input_style(theme: &ConfigTheme) -> text_input::Style {
             radius: Radius::new(10.).bottom(0.),
         },
         icon: theme.text_color(0.),
-        placeholder: theme.text_color(0.2),
-        value: theme.text_color(0.9),
-        selection: theme.text_color(0.2),
+        placeholder: theme.text_color(0.42),
+        value: theme.text_color(0.96),
+        selection: crate::app::pages::ui::accent(0.45),
     }
 }
 
@@ -44,8 +44,8 @@ pub fn contents_style(theme: &ConfigTheme) -> container::Style {
         background: None,
         text_color: None,
         border: iced::Border {
-            color: theme.text_color(0.9),
-            width: 0.4,
+            color: theme.text_color(0.14),
+            width: 1.0,
             radius: Radius::new(14.0),
         },
         ..Default::default()
@@ -351,11 +351,12 @@ pub fn settings_slider_style(theme: &ConfigTheme) -> slider::Style {
     }
 }
 
-/// Helper fn for making a color look like its glassy
+/// Launcher surface color. Opaque on purpose: Linux compositors don't blur
+/// behind the window, so any transparency lets whatever is underneath bleed
+/// through the text.
 pub fn glass_surface(base: Color, focused: bool) -> Color {
-    let t = if focused { 0.2 } else { 0.06 };
-    let a = if focused { 0.9 } else { 0.58 };
-    with_alpha(tint(base, t), a)
+    let t = if focused { 0.13 } else { 0.045 };
+    with_alpha(tint(base, t), 1.0)
 }
 
 /// Helper fn for making a borders color look like its glassy

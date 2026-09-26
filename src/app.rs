@@ -318,6 +318,11 @@ pub enum Message {
     SetClipFilter(ClipFilter),
     /// Run several Jev steps in order.
     JevRunAll(Vec<Message>),
+    /// Re-check a focus loss after a short delay; hide only if another app
+    /// really took focus.
+    ConfirmFocusLost(Id),
+    /// Select a result without opening it (clicking a clipboard card).
+    SelectResult(u32),
     /// The Jev model's reading of a query the parser couldn't place:
     /// (the query it answered, the action it chose).
     JevModelResult(String, Option<crate::jev::Intent>),
