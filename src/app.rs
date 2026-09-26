@@ -318,6 +318,9 @@ pub enum Message {
     SetClipFilter(ClipFilter),
     /// Run several Jev steps in order.
     JevRunAll(Vec<Message>),
+    /// The Jev model's reading of a query the parser couldn't place:
+    /// (the query it answered, the action it chose).
+    JevModelResult(String, Option<crate::jev::Intent>),
 }
 
 #[derive(Debug, Clone)]

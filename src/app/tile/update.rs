@@ -1352,6 +1352,32 @@ fn update_inner(tile: &mut Tile, message: Message) -> Task<Message> {
             .into_iter()
             .fold(Task::none(), |task, step| task.chain(Task::done(step))),
 
+        Message::JevModelResult(query, intent) => {
+            // Ignore answers for a query the user has since changed.
+            let Some(intent) = intent else {
+                return Task::none();
+            };
+            if tile.page != Page::Main || tile.query != query {
+                return Task::none();
+            }
+            let world = TileWorld {
+                options: &tile.options,
+            };
+            let mut rows = crate::jev::rows_for(&intent, &world);
+            for row in &mut rows {
+                row.desc = format!("{} · suggested by Jev", row.desc);
+            }
+            tile.results
+                .retain(|r| !rows.iter().any(|m| m.display_name == r.display_name));
+            tile.results.splice(0..0, rows);
+            tile.focus_id = 0;
+            let count = tile.results.len();
+            window::latest().then(move |id| match id {
+                Some(id) => resize_for_results_count(id, count),
+                None => Task::none(),
+            })
+        }
+
         Message::DebouncedSearch(id) => {
             // Only execute if this is still the most recent debounce timer
             if !tile.debouncer.is_ready() {
@@ -1570,7 +1596,19 @@ fn execute_query(tile: &mut Tile, id: Id) -> Task<Message> {
                 .send((file_query, tile.config.search_dirs.clone()))
                 .ok();
         }
-        return resize_for_results_count(id, tile.results.len());
+        let resize = resize_for_results_count(id, tile.results.len());
+        // If the parser could only guess, ask the Jev model in the background.
+        let text = crate::jev::strip_prefix(&tile.query).to_string();
+        if crate::jev::needs_model(&text)
+            && let Some(key) = crate::jev_model::api_key()
+        {
+            let query = tile.query.clone();
+            let ask = Task::perform(crate::jev_model::classify_async(text, key), move |intent| {
+                Message::JevModelResult(query.clone(), intent)
+            });
+            return Task::batch([resize, ask]);
+        }
+        return resize;
     }
 
     if tile.page == Page::Main && tile.query_lc.is_empty() {

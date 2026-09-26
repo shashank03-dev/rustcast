@@ -7,6 +7,7 @@ mod commands;
 mod config;
 mod debounce;
 mod jev;
+mod jev_model;
 mod persist;
 mod platform;
 mod quit;
