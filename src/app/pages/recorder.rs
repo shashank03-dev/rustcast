@@ -1,7 +1,9 @@
 //! The screen recorder page: what can be recorded, plus quick toggles.
 //!
-//! Rows are ordinary result [`App`]s, so the page looks and behaves exactly like
-//! the rest of the launcher (arrow keys, Enter, typing to filter, theme).
+//! The page is built from ordinary result [`App`] rows (one list, one keyboard
+//! order, typing filters it) and rendered by [`recorder_page`] as a layout made
+//! for recording: a live banner while recording, screen and window cards, and
+//! switches for the options.
 
 use crate::app::apps::{App, AppCommand, ICNS_ICON, file_result_icon};
 use crate::app::{Message, RecorderOption};
@@ -233,6 +235,387 @@ fn filter(rows: Vec<App>, query_lc: &str) -> Vec<App> {
                 || r.desc.to_lowercase().contains(query_lc)
         })
         .collect()
+}
+
+// ----------------------------------------------------------------------------
+// View: a purpose-built layout for the rows above. The row list stays the
+// single source of truth (order = keyboard order, same wording); this only
+// decides how each kind of row looks.
+// ----------------------------------------------------------------------------
+
+use std::time::Instant;
+
+use iced::widget::text::Wrapping;
+use iced::widget::{Scrollable, column, row, scrollable, text};
+use iced::{Alignment, Element, Length};
+
+use crate::app::pages::ui::{self, Tone};
+use crate::app::tile::Motion;
+use crate::config::Theme;
+
+/// What a recorder row is, from the action it performs.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Kind {
+    Stop,
+    Info,
+    Remove,
+    Add,
+    Screen,
+    Window,
+    Toggle(RecorderOption),
+    Folder,
+    Other,
+}
+
+fn kind_of(app: &App) -> Kind {
+    match &app.open_command {
+        AppCommand::Message(Message::RecorderStop) => Kind::Stop,
+        AppCommand::Message(Message::RecorderRemoveWindow(_)) => Kind::Remove,
+        AppCommand::Message(Message::RecorderAddWindow(..)) => Kind::Add,
+        AppCommand::Message(Message::RecorderToggle(opt)) => Kind::Toggle(*opt),
+        AppCommand::Message(Message::RecorderStart(t)) => match t {
+            RecordTarget::Monitor { .. } | RecordTarget::Portal(PortalSource::Monitor) => {
+                Kind::Screen
+            }
+            _ => Kind::Window,
+        },
+        AppCommand::Function(Function::CreatePath { .. }) => Kind::Folder,
+        AppCommand::Display => Kind::Info,
+        _ => Kind::Other,
+    }
+}
+
+fn section_title(kind: Kind) -> Option<&'static str> {
+    Some(match kind {
+        Kind::Remove => "In this recording",
+        Kind::Add => "Bring into the recording",
+        Kind::Screen => "Screens",
+        Kind::Window => "Windows",
+        Kind::Toggle(_) => "Options",
+        _ => return None,
+    })
+}
+
+struct Ctx<'a> {
+    theme: &'a Theme,
+    motion: &'a Motion,
+    focus: u32,
+    now: Instant,
+    cfg: &'a RecorderConfig,
+}
+
+impl Ctx<'_> {
+    fn fade(&self, i: usize) -> f32 {
+        ui::stagger(self.motion.page_since, self.now, i)
+    }
+    fn focus(&self, i: usize) -> f32 {
+        self.motion.focus_amount(i as u32, self.focus, self.now)
+    }
+}
+
+fn title_text(s: &str, size: f32, theme: &Theme, fade: f32) -> Element<'static, Message> {
+    text(s.to_string())
+        .size(size)
+        .font(theme.font())
+        .wrapping(Wrapping::None)
+        .color(theme.text_color(fade))
+        .into()
+}
+
+fn sub_text(s: &str, theme: &Theme, fade: f32) -> Element<'static, Message> {
+    text(s.to_string())
+        .size(12)
+        .font(theme.font())
+        .wrapping(Wrapping::None)
+        .color(theme.text_color(0.5 * fade))
+        .into()
+}
+
+fn press(app: &App, i: usize) -> Option<Message> {
+    match app.open_command {
+        AppCommand::Display => None,
+        _ => Some(Message::OpenResult(i as u32)),
+    }
+}
+
+/// A standard tile: glyph, title, subtitle, optional trailing element.
+fn tile_card(
+    c: &Ctx,
+    i: usize,
+    app: &App,
+    symbol: &str,
+    color: iced::Color,
+    trailing: Option<Element<'static, Message>>,
+    height: f32,
+) -> Element<'static, Message> {
+    let fade = c.fade(i + 1);
+    let focus = c.focus(i);
+    let mut content = row![
+        ui::glyph(symbol, color, 38.0, fade),
+        iced::widget::container(
+            column![
+                title_text(&app.display_name, 14.0, c.theme, fade),
+                sub_text(&app.desc, c.theme, fade)
+            ]
+            .spacing(3),
+        )
+        .width(Length::Fill)
+        .clip(true),
+    ]
+    .spacing(12)
+    .align_y(Alignment::Center)
+    .padding([10, 12])
+    .height(height);
+    if let Some(t) = trailing {
+        content = content.push(t);
+    }
+    ui::enter(
+        ui::card_button(content, c.theme, focus, fade, press(app, i)).width(Length::Fill),
+        fade,
+    )
+}
+
+fn toggle_card(c: &Ctx, i: usize, app: &App, opt: RecorderOption) -> Element<'static, Message> {
+    let on = opt.get(c.cfg);
+    let knob = match c.motion.toggled {
+        Some((o, at)) if o == opt => {
+            let p = ui::progress(at, c.now, 0, 380, iced::animation::Easing::EaseOutBack);
+            if on { p } else { 1.0 - p }
+        }
+        _ => {
+            if on {
+                1.0
+            } else {
+                0.0
+            }
+        }
+    };
+    let fade = c.fade(i + 1);
+    let focus = c.focus(i);
+    // "Aspect Lock: On" → name + state, same words.
+    let (name, state) = app
+        .display_name
+        .rsplit_once(": ")
+        .unwrap_or((app.display_name.as_str(), ""));
+    let content = row![
+        iced::widget::container(
+            column![
+                title_text(name, 13.0, c.theme, fade),
+                sub_text(&app.desc, c.theme, fade)
+            ]
+            .spacing(3),
+        )
+        .width(Length::Fill)
+        .clip(true),
+        text(state.to_string())
+            .size(11)
+            .font(c.theme.font())
+            .color(if on {
+                ui::accent(fade)
+            } else {
+                c.theme.text_color(0.4 * fade)
+            }),
+        ui::switch(knob, c.theme, fade),
+    ]
+    .spacing(10)
+    .align_y(Alignment::Center)
+    .padding([8, 12])
+    .height(58);
+    ui::enter(
+        ui::card_button(content, c.theme, focus, fade, press(app, i)).width(Length::Fill),
+        fade,
+    )
+}
+
+/// The live banner while recording: pulsing dot, timer, big Stop.
+fn stop_hero(c: &Ctx, i: usize, app: &App) -> Element<'static, Message> {
+    let fade = c.fade(0);
+    let focus = c.focus(i);
+    let phase = c.motion.page_since.elapsed().as_secs_f32();
+    let pulse = 0.55 + 0.45 * (phase * std::f32::consts::TAU / 1.4).cos();
+    let status = app.desc.trim_start_matches("● ").to_string();
+    let theme = c.theme.clone();
+    let banner = row![
+        text("●").size(22).color(ui::red(pulse * fade)),
+        iced::widget::container(
+            text(status)
+                .size(18)
+                .font(c.theme.font())
+                .wrapping(Wrapping::None)
+                .color(c.theme.text_color(fade)),
+        )
+        .width(Length::Fill)
+        .clip(true),
+        ui::pill_button(
+            row![
+                text("■").size(12),
+                text(app.display_name.clone()).size(13).font(c.theme.font())
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center),
+            Tone::Danger,
+            c.theme,
+            press(app, i),
+        )
+        .padding([10, 18]),
+    ]
+    .spacing(14)
+    .align_y(Alignment::Center);
+    let ring = focus;
+    ui::enter(
+        iced::widget::container(banner)
+            .padding([16, 18])
+            .width(Length::Fill)
+            .style(move |_| {
+                let mut s = ui::panel_style(&theme, Some(ui::red(1.0)), fade);
+                s.border.width = 1.0 + ring;
+                s
+            }),
+        fade,
+    )
+}
+
+fn info_banner(c: &Ctx, i: usize, app: &App) -> Element<'static, Message> {
+    let fade = c.fade(i + 1);
+    let theme = c.theme.clone();
+    ui::enter(
+        iced::widget::container(
+            row![
+                ui::glyph("◉", ui::green(1.0), 34.0, fade),
+                column![
+                    title_text(&app.display_name, 14.0, c.theme, fade),
+                    sub_text(&app.desc, c.theme, fade)
+                ]
+                .spacing(3)
+            ]
+            .spacing(12)
+            .align_y(Alignment::Center),
+        )
+        .padding([12, 14])
+        .width(Length::Fill)
+        .style(move |_| ui::panel_style(&theme, Some(ui::green(1.0)), fade)),
+        fade,
+    )
+}
+
+fn folder_button(c: &Ctx, i: usize, app: &App) -> Element<'static, Message> {
+    let fade = c.fade(i + 1);
+    let focus = c.focus(i);
+    let content = row![
+        ui::glyph("▤", ui::accent(1.0), 30.0, fade),
+        title_text(&app.display_name, 13.0, c.theme, fade),
+        ui::spacer(),
+        sub_text(&app.desc, c.theme, fade),
+    ]
+    .spacing(10)
+    .align_y(Alignment::Center)
+    .padding([8, 12]);
+    ui::enter(
+        ui::card_button(content, c.theme, focus, fade, press(app, i)).width(Length::Fill),
+        fade,
+    )
+}
+
+fn render_item(c: &Ctx, i: usize, app: &App, kind: Kind) -> Element<'static, Message> {
+    match kind {
+        Kind::Stop => stop_hero(c, i, app),
+        Kind::Info => info_banner(c, i, app),
+        Kind::Folder => folder_button(c, i, app),
+        Kind::Toggle(opt) => toggle_card(c, i, app, opt),
+        Kind::Screen => tile_card(c, i, app, "▭", ui::accent(1.0), None, 68.0),
+        Kind::Window => {
+            let minimized = app.desc.contains("minimized");
+            let badge =
+                minimized.then(|| ui::badge("minimized", ui::green(1.0), c.theme, c.fade(i + 1)));
+            tile_card(c, i, app, "◧", ui::accent(1.0), badge, 64.0)
+        }
+        Kind::Add => tile_card(c, i, app, "+", ui::green(1.0), None, 60.0),
+        Kind::Remove => tile_card(c, i, app, "−", ui::red(1.0), None, 56.0),
+        Kind::Other => tile_card(c, i, app, "•", ui::accent(1.0), None, 56.0),
+    }
+}
+
+/// Whether a kind is laid out two-per-row.
+fn in_grid(kind: Kind) -> bool {
+    matches!(
+        kind,
+        Kind::Screen | Kind::Window | Kind::Add | Kind::Toggle(_)
+    )
+}
+
+/// The recorder page body (between the search field and the footer).
+pub fn recorder_page(
+    rows: &[App],
+    cfg: &RecorderConfig,
+    focus: u32,
+    theme: &Theme,
+    motion: &Motion,
+) -> Element<'static, Message> {
+    let c = Ctx {
+        theme,
+        motion,
+        focus,
+        now: Instant::now(),
+        cfg,
+    };
+
+    if rows.is_empty() {
+        return iced::widget::container(sub_text("No results found", theme, 1.0))
+            .center_x(Length::Fill)
+            .center_y(Length::Fill)
+            .into();
+    }
+
+    // Group consecutive rows by section, keeping their order (= keyboard order).
+    let mut blocks: Vec<Element<'static, Message>> = Vec::new();
+    let mut i = 0;
+    let mut last_title: Option<&str> = None;
+    while i < rows.len() {
+        let kind = kind_of(&rows[i]);
+        let section = |k: Kind| section_title(k).map(|_| std::mem::discriminant(&k));
+        if let Some(title) = section_title(kind)
+            && last_title != Some(title)
+        {
+            blocks.push(ui::enter(
+                ui::section_label(title, theme, c.fade(i)),
+                c.fade(i),
+            ));
+            last_title = Some(title);
+        }
+        if in_grid(kind) {
+            // Collect the run of same-section items and lay them out 2-up.
+            let start = i;
+            while i < rows.len() && section(kind_of(&rows[i])) == section(kind) {
+                i += 1;
+            }
+            let items: Vec<usize> = (start..i).collect();
+            for pair in items.chunks(2) {
+                let mut r = row![].spacing(10);
+                for &j in pair {
+                    r = r.push(
+                        iced::widget::container(render_item(&c, j, &rows[j], kind_of(&rows[j])))
+                            .width(Length::FillPortion(1)),
+                    );
+                }
+                // A lone screen or add-card spans the row; options keep the grid.
+                if pair.len() == 1 && matches!(kind, Kind::Toggle(_) | Kind::Window) {
+                    r = r.push(iced::widget::Space::new().width(Length::FillPortion(1)));
+                }
+                blocks.push(r.into());
+            }
+        } else {
+            blocks.push(render_item(&c, i, &rows[i], kind));
+            i += 1;
+        }
+    }
+
+    Scrollable::with_direction(
+        column(blocks).spacing(10).padding([14, 16]),
+        scrollable::Direction::Vertical(scrollable::Scrollbar::new().width(3).scroller_width(3)),
+    )
+    .id("results")
+    .height(Length::Fill)
+    .into()
 }
 
 #[cfg(test)]

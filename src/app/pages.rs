@@ -6,3 +6,4 @@ pub mod emoji;
 pub mod prelude;
 pub mod recorder;
 pub mod settings;
+pub mod ui;

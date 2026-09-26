@@ -24,6 +24,97 @@ pub const WINDOW_WIDTH: f32 = 500.;
 /// The default window height
 pub const DEFAULT_WINDOW_HEIGHT: f32 = 100.;
 
+/// The clipboard history page gets a big, purpose-built window.
+pub const CLIPBOARD_WIDTH: f32 = 860.;
+pub const CLIPBOARD_HEIGHT: f32 = 600.;
+
+/// The screen recorder page's window.
+pub const RECORDER_WIDTH: f32 = 720.;
+pub const RECORDER_HEIGHT: f32 = 580.;
+
+static LAUNCHER_SIZE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Remember the launcher's current size so the platform code can centre it.
+pub fn set_launcher_size(width: f32, height: f32) {
+    let packed = ((width as u64) << 32) | (height as u64 & 0xffff_ffff);
+    LAUNCHER_SIZE.store(packed, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The launcher's current (width, height), defaulting to the classic size.
+pub fn launcher_size() -> (f32, f32) {
+    let packed = LAUNCHER_SIZE.load(std::sync::atomic::Ordering::Relaxed);
+    if packed == 0 {
+        return (WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT);
+    }
+    ((packed >> 32) as f32, (packed & 0xffff_ffff) as f32)
+}
+
+/// Launcher width for a page.
+pub fn page_width(page: &Page) -> f32 {
+    match page {
+        Page::ClipboardHistory => CLIPBOARD_WIDTH,
+        Page::Recorder => RECORDER_WIDTH,
+        _ => WINDOW_WIDTH,
+    }
+}
+
+/// Fixed launcher height for pages that don't size to their results.
+pub fn page_height(page: &Page) -> Option<f32> {
+    match page {
+        Page::ClipboardHistory => Some(CLIPBOARD_HEIGHT),
+        Page::Recorder => Some(RECORDER_HEIGHT),
+        _ => None,
+    }
+}
+
+/// Which clipboard entries are shown.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ClipFilter {
+    #[default]
+    All,
+    Text,
+    Images,
+}
+
+impl ClipFilter {
+    pub const ALL: [ClipFilter; 3] = [ClipFilter::All, ClipFilter::Text, ClipFilter::Images];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ClipFilter::All => "All",
+            ClipFilter::Text => "Text",
+            ClipFilter::Images => "Images",
+        }
+    }
+
+    /// The next (or previous) filter, wrapping around.
+    pub fn step(self, forward: bool) -> Self {
+        let i = Self::ALL.iter().position(|f| *f == self).unwrap_or(0);
+        let n = Self::ALL.len();
+        Self::ALL[if forward {
+            (i + 1) % n
+        } else {
+            (i + n - 1) % n
+        }]
+    }
+
+    pub fn matches(self, item: &crate::clipboard::ClipBoardContentType, query_lc: &str) -> bool {
+        use crate::clipboard::ClipBoardContentType as C;
+        let kind_ok = matches!(
+            (self, item),
+            (ClipFilter::All, _)
+                | (ClipFilter::Text, C::Text(_))
+                | (ClipFilter::Images, C::Image(_))
+        );
+        kind_ok
+            && (query_lc.is_empty()
+                || match item {
+                    C::Text(t) => t.to_lowercase().contains(query_lc),
+                    C::Image(_) => "image".contains(query_lc),
+                })
+    }
+}
+
 /// Maximum file search results returned by a single mdfind invocation.
 pub const FILE_SEARCH_MAX_RESULTS: u32 = 400;
 
@@ -222,6 +313,9 @@ pub enum Message {
     /// Show the recorder page (opening the launcher if needed).
     OpenRecorderPage,
     RecorderToggle(RecorderOption),
+    /// Redraw for an animation frame.
+    AnimationFrame,
+    SetClipFilter(ClipFilter),
     /// Run several Jev steps in order.
     JevRunAll(Vec<Message>),
 }
@@ -376,6 +470,18 @@ mod tests {
         assert_eq!(Page::EmojiSearch.to_string(), "Emoji search");
         assert_eq!(Page::Settings.to_string(), "Settings");
         assert_eq!(Page::Recorder.to_string(), "Screen recorder");
+    }
+
+    #[test]
+    fn clip_filter_steps_and_matches() {
+        use crate::clipboard::ClipBoardContentType as C;
+        assert_eq!(ClipFilter::All.step(true), ClipFilter::Text);
+        assert_eq!(ClipFilter::All.step(false), ClipFilter::Images);
+        let text = C::Text("Hello World".to_string());
+        assert!(ClipFilter::All.matches(&text, "world"));
+        assert!(ClipFilter::Text.matches(&text, ""));
+        assert!(!ClipFilter::Images.matches(&text, ""));
+        assert!(!ClipFilter::All.matches(&text, "absent"));
     }
 
     #[test]

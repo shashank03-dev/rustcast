@@ -16,7 +16,6 @@ use log::info;
 use rayon::iter::ParallelIterator;
 use rayon::slice::ParallelSliceMut;
 
-use crate::app::WINDOW_WIDTH;
 use crate::app::pages::emoji::emoji_page;
 use crate::app::pages::settings::settings_page;
 use crate::app::tile::{AppIndex, Hotkeys};
@@ -27,7 +26,7 @@ use crate::platform::events::Event;
 use crate::styles::{
     contents_style, glass_border, glass_surface, results_scrollbar_style, rustcast_text_input_style,
 };
-use crate::{app::pages::clipboard::clipboard_view, platform::get_installed_apps};
+use crate::{app::pages::clipboard::clipboard_page, platform::get_installed_apps};
 use crate::{
     app::{Message, Page, apps::App, tile::Tile},
     config::Config,
@@ -94,6 +93,8 @@ pub fn new(hotkeys: Hotkeys, config: &Config) -> (Tile, Task<Message>) {
             file_dialog_open: false,
             settings_tab: SettingsTab::General,
             debouncer: Debouncer::new(config.debounce_delay),
+            clip_filter: crate::app::ClipFilter::All,
+            motion: crate::app::tile::Motion::default(),
         },
         Task::none(),
     )
@@ -126,11 +127,8 @@ pub fn view(tile: &Tile, wid: window::Id) -> Element<'_, Message> {
             };
 
         let results = match tile.page {
-            Page::ClipboardHistory => clipboard_view(
-                tile.clipboard_content.clone(),
-                tile.focus_id,
-                tile.config.theme.clone(),
-            ),
+            // Purpose-built pages render their own body below.
+            Page::ClipboardHistory | Page::Recorder => space().into(),
             Page::EmojiSearch => emoji_page(
                 tile.config.theme.clone(),
                 tile.emoji_apps
@@ -140,7 +138,7 @@ pub fn view(tile: &Tile, wid: window::Id) -> Element<'_, Message> {
                 tile.focus_id,
             ),
             Page::Settings => settings_page(tile.config.clone(), tile.settings_tab),
-            Page::FileSearch | Page::Main | Page::Recorder => container(Column::from_iter(
+            Page::FileSearch | Page::Main => container(Column::from_iter(
                 tile.results.iter().enumerate().map(|(i, app)| {
                     app.clone().render(
                         tile.config.theme.clone(),
@@ -157,7 +155,7 @@ pub fn view(tile: &Tile, wid: window::Id) -> Element<'_, Message> {
             Page::Main | Page::EmojiSearch | Page::FileSearch | Page::Recorder => {
                 tile.results.len()
             }
-            Page::ClipboardHistory => tile.clipboard_content.len(),
+            Page::ClipboardHistory => tile.clipboard_visible().len(),
             Page::Settings => 0,
         };
 
@@ -170,10 +168,34 @@ pub fn view(tile: &Tile, wid: window::Id) -> Element<'_, Message> {
         };
 
         let theme = tile.config.theme.clone();
-        let scrollable = Scrollable::with_direction(results, scrollbar_direction)
-            .style(move |_, _| results_scrollbar_style(&theme))
-            .id("results")
-            .height(height as u32);
+        let body: Element<'_, Message> = match tile.page {
+            Page::ClipboardHistory => page_surface(
+                clipboard_page(crate::app::pages::clipboard::ClipboardPage {
+                    visible: tile.clipboard_visible(),
+                    all: &tile.clipboard_content,
+                    focus: tile.focus_id,
+                    filter: tile.clip_filter,
+                    theme: tile.config.theme.clone(),
+                    motion: &tile.motion,
+                }),
+                &tile.config.theme,
+            ),
+            Page::Recorder => page_surface(
+                crate::app::pages::recorder::recorder_page(
+                    &tile.results,
+                    &tile.config.recorder,
+                    tile.focus_id,
+                    &tile.config.theme,
+                    &tile.motion,
+                ),
+                &tile.config.theme,
+            ),
+            _ => Scrollable::with_direction(results, scrollbar_direction)
+                .style(move |_, _| results_scrollbar_style(&theme))
+                .id("results")
+                .height(height as u32)
+                .into(),
+        };
 
         let text = if tile.query_lc.is_empty() {
             match &tile.page {
@@ -193,7 +215,7 @@ pub fn view(tile: &Tile, wid: window::Id) -> Element<'_, Message> {
         let contents = container(
             Column::new()
                 .push(title_input)
-                .push(scrollable)
+                .push(body)
                 .push(footer(
                     tile.config.theme.clone(),
                     tile.current_mode.clone(),
@@ -218,6 +240,23 @@ pub fn view(tile: &Tile, wid: window::Id) -> Element<'_, Message> {
     } else {
         space().into()
     }
+}
+
+/// Glass surface behind a purpose-built page body, filling the space
+/// between the search field and the footer.
+fn page_surface<'a>(content: Element<'a, Message>, theme: &Theme) -> Element<'a, Message> {
+    let theme = theme.clone();
+    container(content)
+        .width(Fill)
+        .height(Fill)
+        .style(move |_| container::Style {
+            background: Some(iced::Background::Color(glass_surface(
+                theme.bg_color(),
+                false,
+            ))),
+            ..Default::default()
+        })
+        .into()
 }
 
 /// The footer at the bottom displaying the mode and results found, and its styling
@@ -257,7 +296,7 @@ fn footer(theme: Theme, current_mode: String, text: String) -> Element<'static, 
     )
     .align_y(Alignment::Center)
     .center(Length::Fill)
-    .width(WINDOW_WIDTH)
+    .width(Fill)
     .padding(5)
     .height(30)
     .style(move |_| container::Style {
