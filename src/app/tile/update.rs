@@ -102,8 +102,27 @@ fn message_for_open_command(command: &AppCommand) -> Message {
     }
 }
 
-/// Handle the "elm" update
+/// Handle the "elm" update. Wraps [`update_inner`] to start the page and
+/// selection animations whenever the page or the focused item changes.
 pub fn handle_update(tile: &mut Tile, message: Message) -> Task<Message> {
+    let (page_before, focus_before, filter_before) =
+        (tile.page.clone(), tile.focus_id, tile.clip_filter);
+    let task = update_inner(tile, message);
+    let now = std::time::Instant::now();
+    if tile.page != page_before {
+        tile.motion.page_since = now;
+        tile.motion.prev_focus = tile.focus_id;
+    } else if tile.clip_filter != filter_before {
+        tile.motion.page_since = now;
+    }
+    if tile.focus_id != focus_before {
+        tile.motion.prev_focus = focus_before;
+        tile.motion.focus_since = now;
+    }
+    task
+}
+
+fn update_inner(tile: &mut Tile, message: Message) -> Task<Message> {
     match message {
         Message::OpenWindow => {
             tile.capture_frontmost();
@@ -279,8 +298,16 @@ pub fn handle_update(tile: &mut Tile, message: Message) -> Task<Message> {
         Message::ChangeFocus(key, amount) => {
             let mut return_task = Task::none();
             for _ in 0..amount {
+                // Left/Right switch the clipboard filter.
+                if tile.page == Page::ClipboardHistory
+                    && matches!(key, ArrowKey::Left | ArrowKey::Right)
+                {
+                    return Task::done(Message::SetClipFilter(
+                        tile.clip_filter.step(matches!(key, ArrowKey::Right)),
+                    ));
+                }
                 let len = match tile.page {
-                    Page::ClipboardHistory => tile.clipboard_content.len() as u32,
+                    Page::ClipboardHistory => tile.clipboard_visible().len() as u32,
                     Page::EmojiSearch => {
                         tile.emoji_apps.search_prefix(&tile.query_lc).count() as u32
                     } // or tile.results.len()
@@ -315,11 +342,21 @@ pub fn handle_update(tile: &mut Tile, message: Message) -> Task<Message> {
                         tile.focus_id = (tile.focus_id + 1) % len;
                         operation::focus("results")
                     }
+                    (ArrowKey::Left, Page::Recorder) => {
+                        tile.focus_id = (tile.focus_id + len - 1) % len;
+                        Task::none()
+                    }
+                    (ArrowKey::Right, Page::Recorder) => {
+                        tile.focus_id = (tile.focus_id + 1) % len;
+                        Task::none()
+                    }
                     _ => Task::none(),
                 };
 
                 let quantity = match tile.page {
-                    Page::Main | Page::FileSearch | Page::ClipboardHistory | Page::Recorder => 66.5,
+                    Page::Main | Page::FileSearch | Page::Recorder => 66.5,
+                    // Card height + spacing on the clipboard list.
+                    Page::ClipboardHistory => crate::app::pages::clipboard::CARD_PITCH,
                     Page::EmojiSearch => 5.,
                     Page::Settings => 0.,
                 };
@@ -338,6 +375,26 @@ pub fn handle_update(tile: &mut Tile, message: Message) -> Task<Message> {
                     tile.focus_id as f32 * quantity
                 };
 
+                if tile.page == Page::Recorder {
+                    // Mixed-height sections: snap proportionally.
+                    let rel = if len > 1 {
+                        tile.focus_id as f32 / (len - 1) as f32
+                    } else {
+                        0.0
+                    };
+                    return_task = Task::batch([
+                        task,
+                        operation::snap_to(
+                            "results",
+                            iced::widget::operation::RelativeOffset {
+                                x: None,
+                                y: Some(rel),
+                            },
+                        ),
+                    ]);
+                    continue;
+                }
+
                 return_task = Task::batch([
                     task,
                     operation::scroll_to(
@@ -354,14 +411,26 @@ pub fn handle_update(tile: &mut Tile, message: Message) -> Task<Message> {
 
         Message::ResizeWindow(id, height) => {
             info!("Resizing rustcast window");
+            // Purpose-built pages (clipboard, recorder) have their own size.
+            let width = crate::app::page_width(&tile.page);
+            let height = crate::app::page_height(&tile.page).unwrap_or(height);
             tile.height = height;
-            window::resize(
-                id,
-                iced::Size {
-                    width: WINDOW_WIDTH,
-                    height,
-                },
-            )
+            let (old_w, old_h) = crate::app::launcher_size();
+            crate::app::set_launcher_size(width, height);
+            let resize = window::resize(id, iced::Size { width, height });
+            // Re-centre when the footprint changes a lot (switching page kinds).
+            if (old_w - width).abs() > 1.0 || (old_h - height).abs() > 200.0 {
+                resize.chain(
+                    window::run(id, |handle| {
+                        if let Ok(h) = handle.window_handle() {
+                            crate::platform::position_launcher(&h);
+                        }
+                    })
+                    .discard(),
+                )
+            } else {
+                resize
+            }
         }
         Message::LoadRanking => {
             for (name, rank) in &tile.ranking {
@@ -891,7 +960,7 @@ pub fn handle_update(tile: &mut Tile, message: Message) -> Task<Message> {
         Message::FileDialogResult(inner) => {
             tile.file_dialog_open = false;
             match inner {
-                Some(msg) => handle_update(tile, *msg),
+                Some(msg) => update_inner(tile, *msg),
                 None => Task::none(),
             }
         }
@@ -1257,11 +1326,26 @@ pub fn handle_update(tile: &mut Tile, message: Message) -> Task<Message> {
         Message::RecorderToggle(opt) => {
             let value = !opt.get(&tile.config.recorder);
             opt.set(&mut tile.config.recorder, value);
+            tile.motion.toggled = Some((opt, std::time::Instant::now()));
             if opt == crate::app::RecorderOption::PictureInPicture {
                 crate::recorder::set_picture_in_picture(value);
             }
             persist_config(&tile.config);
             Task::done(Message::RecorderChanged)
+        }
+
+        Message::AnimationFrame => Task::none(),
+
+        Message::SetClipFilter(filter) => {
+            tile.clip_filter = filter;
+            tile.focus_id = 0;
+            operation::scroll_to(
+                "results",
+                AbsoluteOffset {
+                    x: None,
+                    y: Some(0.0),
+                },
+            )
         }
 
         Message::JevRunAll(steps) => steps
@@ -1407,9 +1491,9 @@ fn resize_for_results_count(id: Id, count: usize) -> Task<Message> {
 
 fn open_result(tile: &mut Tile, id: usize) -> Task<Message> {
     let results = if tile.page == Page::ClipboardHistory {
-        tile.clipboard_content
-            .iter()
-            .map(|x| x.to_app().to_owned())
+        tile.clipboard_visible()
+            .into_iter()
+            .map(|(_, x)| x.to_app())
             .collect()
     } else {
         tile.results.clone()
@@ -1768,6 +1852,8 @@ mod tests {
             file_dialog_open: false,
             settings_tab: crate::app::SettingsTab::General,
             debouncer: crate::debounce::Debouncer::new(10),
+            clip_filter: crate::app::ClipFilter::All,
+            motion: crate::app::tile::Motion::default(),
         }
     }
 

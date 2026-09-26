@@ -328,6 +328,63 @@ pub struct Tile {
     pub file_dialog_open: bool,
     pub settings_tab: crate::app::SettingsTab,
     debouncer: Debouncer,
+    pub clip_filter: crate::app::ClipFilter,
+    pub motion: Motion,
+}
+
+/// Timestamps driving the page animations (see `pages::ui`).
+#[derive(Clone, Debug)]
+pub struct Motion {
+    /// When the current page appeared (staggered entrance).
+    pub page_since: std::time::Instant,
+    /// When the selection last moved, and where from.
+    pub focus_since: std::time::Instant,
+    pub prev_focus: u32,
+    /// The last flipped recorder switch.
+    pub toggled: Option<(crate::app::RecorderOption, std::time::Instant)>,
+}
+
+impl Default for Motion {
+    fn default() -> Self {
+        let long_ago = std::time::Instant::now()
+            .checked_sub(Duration::from_secs(10))
+            .unwrap_or_else(std::time::Instant::now);
+        Motion {
+            page_since: long_ago,
+            focus_since: long_ago,
+            prev_focus: 0,
+            toggled: None,
+        }
+    }
+}
+
+impl Motion {
+    /// Whether anything is still moving (so frames should be requested).
+    pub fn active(&self, now: std::time::Instant) -> bool {
+        now.duration_since(self.page_since) < Duration::from_millis(700)
+            || now.duration_since(self.focus_since) < Duration::from_millis(260)
+            || self
+                .toggled
+                .is_some_and(|(_, t)| now.duration_since(t) < Duration::from_millis(420))
+    }
+
+    /// Selection highlight (0‥1) for item `i` given the current focus.
+    pub fn focus_amount(&self, i: u32, focus: u32, now: std::time::Instant) -> f32 {
+        let t = crate::app::pages::ui::progress(
+            self.focus_since,
+            now,
+            0,
+            180,
+            iced::animation::Easing::EaseOutCubic,
+        );
+        if i == focus {
+            t
+        } else if i == self.prev_focus && self.prev_focus != focus {
+            1.0 - t
+        } else {
+            0.0
+        }
+    }
 }
 
 /// A struct to store all the hotkeys
@@ -402,7 +459,18 @@ impl Tile {
         } else {
             Subscription::none()
         };
+        // Per-frame redraws while something animates (or the REC dot pulses).
+        let now = std::time::Instant::now();
+        let animating = self.visible
+            && (self.motion.active(now)
+                || (self.page == Page::Recorder && crate::recorder::is_recording()));
+        let frames = if animating {
+            window::frames().map(|_| Message::AnimationFrame)
+        } else {
+            Subscription::none()
+        };
         Subscription::batch([
+            frames,
             recorder_clock,
             Subscription::run(handle_hot_reloading),
             keyboard,
@@ -493,6 +561,16 @@ impl Tile {
             .collect();
 
         self.results = results;
+    }
+
+    /// Clipboard entries matching the current filter and query, with their
+    /// index into the full history.
+    pub fn clipboard_visible(&self) -> Vec<(usize, &ClipBoardContentType)> {
+        self.clipboard_content
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| self.clip_filter.matches(c, &self.query_lc))
+            .collect()
     }
 
     pub fn frequent_results(&self) -> Vec<App> {

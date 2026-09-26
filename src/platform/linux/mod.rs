@@ -117,8 +117,6 @@ pub fn window_config(handle: &WindowHandle) {
 /// fixed across resizes), so anchoring the top keeps it visually stable. No-op
 /// for non-X11 handles.
 pub fn position_launcher(handle: &WindowHandle) {
-    use crate::app::WINDOW_WIDTH;
-
     let xid = match handle.as_raw() {
         RawWindowHandle::Xlib(h) => Some(h.window as u32),
         RawWindowHandle::Xcb(h) => Some(h.window.get()),
@@ -129,8 +127,12 @@ pub fn position_launcher(handle: &WindowHandle) {
         return;
     };
 
-    let x = mon.x + ((mon.w as i32 - WINDOW_WIDTH as i32) / 2).max(0);
-    let y = mon.y + (mon.h as f32 * 0.18) as i32;
+    let (width, height) = crate::app::launcher_size();
+    let x = mon.x + ((mon.w as i32 - width as i32) / 2).max(0);
+    // Upper third for the slim launcher; big pages are centred so they fit.
+    let top = (mon.h as f32 * 0.18) as i32;
+    let centred = ((mon.h as i32 - height as i32) / 2).max(0);
+    let y = mon.y + top.min(centred.max(top.min(24)));
     // `move_window` waits for the WM to start managing the freshly-opened window
     // before issuing the move (otherwise the move races window mapping and the
     // launcher lands at the compositor's default top-left spot). That wait would

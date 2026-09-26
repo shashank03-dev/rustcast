@@ -7,5 +7,5 @@ pub use iced::{
 pub use crate::{
     app::{Message, WINDOW_WIDTH, apps::App},
     config::Theme,
-    styles::{emoji_button_container_style, emoji_button_style, result_row_container_style},
+    styles::{emoji_button_container_style, emoji_button_style},
 };

@@ -4,7 +4,9 @@ A faithful Linux port of [RustCast](https://github.com/RustCastLabs/rustcast), t
 Rust-powered productivity launcher, plus these new features:
 
 1. **Clipboard history** — everything you copy (text + images) is stored and shown
-   in a popup on a hotkey (`Super+Shift+C`). History is **persisted to disk** under
+   on a hotkey (`Super+Shift+C`) in a full-size view: cards with type badges,
+   a large preview with details, All / Text / Images filters (`←` `→`), typing
+   to search, `↑` `↓` to browse, `Enter` to copy, `Ctrl+1…9` for quick picks. History is **persisted to disk** under
    `~/.local/share/rustcast/clipboard` and survives restarts.
 2. **Screenshot thumbnail with real drag-and-drop** — take a region screenshot with
    `Super+Shift+S` (or use PrintScreen). A thumbnail pops up in the **bottom-left
@@ -26,7 +28,9 @@ Rust-powered productivity launcher, plus these new features:
    | `jev open downloads and firefox then show desktop` | several steps → a "Run all" row |
 
    Type just `jev` for examples.
-4. **Screen recorder** (`Super+Shift+R`) — opens the recorder page in the launcher:
+4. **Screen recorder** (`Super+Shift+R`) — opens a recorder view laid out for the
+   job: screen cards, a grid of window cards, switches for the options, and — while
+   recording — a live banner with the timer and a big Stop button:
    - **Lock onto a window**: the recording follows that one app. Windows dragged
      over it never show up, moving it around doesn't matter, and nothing turns
      black. **Minimizing it keeps recording**: the window is hidden (invisible,
