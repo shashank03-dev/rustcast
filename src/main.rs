@@ -6,9 +6,11 @@ mod clipboard;
 mod commands;
 mod config;
 mod debounce;
+mod jev;
 mod persist;
 mod platform;
 mod quit;
+mod recorder;
 mod styles;
 mod unit_conversion;
 mod utils;
@@ -41,6 +43,12 @@ fn main() -> iced::Result {
         if let Some(path) = cli_args.get(pos + 1) {
             crate::platform::linux::overlay_gtk::run(std::path::PathBuf::from(path));
         }
+        return Ok(());
+    }
+
+    // The floating "● REC" pill is another short-lived GTK subprocess.
+    if let Some(pos) = cli_args.iter().position(|a| a == "--rec-indicator") {
+        crate::recorder::indicator::run(&cli_args[pos + 1..]);
         return Ok(());
     }
 
@@ -118,6 +126,9 @@ fn main() -> iced::Result {
     let screenshot = Shortcut::parse(&config.screenshot_hotkey.to_lowercase())
         .unwrap_or_else(|_| Shortcut::parse("super+shift+s").unwrap());
 
+    let recorder = Shortcut::parse(&config.recorder_hotkey.to_lowercase())
+        .unwrap_or_else(|_| Shortcut::parse("super+shift+r").unwrap());
+
     let mut shell_map = HashMap::new();
 
     for shell in &config.shells {
@@ -132,6 +143,7 @@ fn main() -> iced::Result {
         toggle: show_hide,
         clipboard_hotkey: cbhist,
         screenshot_hotkey: screenshot,
+        recorder_hotkey: recorder,
         shells: shell_map,
         handle: None,
     };

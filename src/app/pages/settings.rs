@@ -17,8 +17,10 @@ use crate::styles::with_alpha;
 
 use crate::app::Editable;
 use crate::app::FileDialogAction;
+use crate::app::RecorderOption;
 use crate::app::ResetField;
 use crate::app::SetConfigBufferFields;
+use crate::app::SetConfigRecorderFields;
 use crate::app::SetConfigThemeFields;
 use crate::app::SettingsTab;
 use crate::commands::Function;
@@ -56,6 +58,12 @@ pub fn settings_page(config: Config, settings_tab: SettingsTab) -> Element<'stat
             theme.clone(),
         ),
         tab_button(
+            "Recorder",
+            SettingsTab::Recorder,
+            settings_tab,
+            theme.clone(),
+        ),
+        tab_button(
             "Commands",
             SettingsTab::Commands,
             settings_tab,
@@ -68,6 +76,7 @@ pub fn settings_page(config: Config, settings_tab: SettingsTab) -> Element<'stat
     let tab_content: Column<'static, Message> = match settings_tab {
         SettingsTab::General => general_tab(config.clone(), theme.clone()),
         SettingsTab::Appearance => appearance_tab(config.clone(), theme.clone()),
+        SettingsTab::Recorder => recorder_tab(config.clone(), theme.clone()),
         SettingsTab::Commands => commands_tab(config.clone(), theme.clone()),
     };
 
@@ -707,6 +716,191 @@ fn appearance_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'s
         event_duration,
         text_clr,
         bg_clr,
+    ])
+    .spacing(10)
+}
+
+fn recorder_text_setting(
+    theme: &Theme,
+    title: &'static str,
+    value: String,
+    notice: &'static str,
+    on_input: impl Fn(String) -> Message + 'static,
+    field: ResetField,
+) -> Element<'static, Message> {
+    let theme_clone = theme.clone();
+    settings_row_with_reset(
+        settings_item_column([
+            settings_hint_text(theme.clone(), title),
+            text_input(title, &value)
+                .on_input(on_input)
+                .on_submit(Message::WriteConfig(false))
+                .width(Length::Fill)
+                .style(move |_, _| settings_text_input_item_style(&theme_clone))
+                .into(),
+            notice_item(theme.clone(), notice),
+        ]),
+        field,
+        theme.clone(),
+    )
+}
+
+fn recorder_checkbox_setting(
+    config: &Config,
+    theme: &Theme,
+    title: &'static str,
+    notice: &'static str,
+    opt: RecorderOption,
+) -> Element<'static, Message> {
+    let theme_clone = theme.clone();
+    settings_row_with_reset(
+        settings_item_row([
+            settings_hint_text(theme.clone(), title),
+            checkbox(opt.get(&config.recorder))
+                .style(move |_, _| settings_checkbox_style(&theme_clone))
+                .on_toggle(move |value| {
+                    Message::SetConfig(SetConfigFields::SetRecorderFields(
+                        SetConfigRecorderFields::Option(opt, value),
+                    ))
+                })
+                .into(),
+            notice_item(theme.clone(), notice),
+        ]),
+        ResetField::RecorderOption(opt),
+        theme.clone(),
+    )
+}
+
+fn recorder_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'static, Message> {
+    let rec = config.recorder.clone();
+    let hotkey = recorder_text_setting(
+        &theme,
+        "Recorder hotkey",
+        config.recorder_hotkey.clone(),
+        "Opens the recorder; stops a running recording",
+        |input| {
+            Message::SetConfig(SetConfigFields::SetRecorderFields(
+                SetConfigRecorderFields::Hotkey(input),
+            ))
+        },
+        ResetField::RecorderHotkey,
+    );
+
+    let current_fps = rec.fps;
+    let fps = recorder_text_setting(
+        &theme,
+        "Frames per second",
+        rec.fps.to_string(),
+        "1 – 120 (30 is a good default)",
+        move |input| {
+            Message::SetConfig(SetConfigFields::SetRecorderFields(
+                SetConfigRecorderFields::Fps(input.trim().parse().unwrap_or(current_fps)),
+            ))
+        },
+        ResetField::RecorderFps,
+    );
+
+    let theme_clone = theme.clone();
+    let theme_clone_2 = theme.clone();
+    let (cur_w, cur_h) = (rec.output_width, rec.output_height);
+    let size = settings_row_with_reset(
+        settings_item_column([
+            settings_hint_text(theme.clone(), "Aspect-locked output size"),
+            Row::from_iter([
+                text_input("Width", &rec.output_width.to_string())
+                    .on_input(move |input| {
+                        Message::SetConfig(SetConfigFields::SetRecorderFields(
+                            SetConfigRecorderFields::OutputWidth(
+                                input.trim().parse().unwrap_or(cur_w),
+                            ),
+                        ))
+                    })
+                    .on_submit(Message::WriteConfig(false))
+                    .width(Length::Fill)
+                    .style(move |_, _| settings_text_input_item_style(&theme_clone))
+                    .into(),
+                Text::new("×")
+                    .font(theme.font())
+                    .color(theme.text_color(0.7))
+                    .into(),
+                text_input("Height", &rec.output_height.to_string())
+                    .on_input(move |input| {
+                        Message::SetConfig(SetConfigFields::SetRecorderFields(
+                            SetConfigRecorderFields::OutputHeight(
+                                input.trim().parse().unwrap_or(cur_h),
+                            ),
+                        ))
+                    })
+                    .on_submit(Message::WriteConfig(false))
+                    .width(Length::Fill)
+                    .style(move |_, _| settings_text_input_item_style(&theme_clone_2))
+                    .into(),
+            ])
+            .spacing(8)
+            .align_y(Alignment::Center)
+            .into(),
+            notice_item(
+                theme.clone(),
+                "Every frame is fitted into this size when Aspect lock is on",
+            ),
+        ]),
+        ResetField::RecorderOutputSize,
+        theme.clone(),
+    );
+
+    let dir = recorder_text_setting(
+        &theme,
+        "Save recordings to",
+        rec.output_dir.clone(),
+        "Folder for .mp4 files (~ is your home)",
+        |input| {
+            Message::SetConfig(SetConfigFields::SetRecorderFields(
+                SetConfigRecorderFields::OutputDir(input),
+            ))
+        },
+        ResetField::RecorderOutputDir,
+    );
+
+    Column::from_iter([
+        hotkey,
+        recorder_checkbox_setting(
+            &config,
+            &theme,
+            "Aspect lock",
+            "Fixed video size; resizing the window never changes it",
+            RecorderOption::AspectLock,
+        ),
+        size,
+        fps,
+        recorder_checkbox_setting(
+            &config,
+            &theme,
+            "Keep recording when minimized",
+            "A minimized locked window stays in the recording",
+            RecorderOption::KeepWhenMinimized,
+        ),
+        recorder_checkbox_setting(
+            &config,
+            &theme,
+            "Show cursor",
+            "Draw the mouse pointer into the video",
+            RecorderOption::ShowCursor,
+        ),
+        recorder_checkbox_setting(
+            &config,
+            &theme,
+            "Record audio",
+            "Default audio input (PulseAudio / PipeWire)",
+            RecorderOption::RecordAudio,
+        ),
+        recorder_checkbox_setting(
+            &config,
+            &theme,
+            "Recording indicator",
+            "Floating ● REC pill with a Stop button",
+            RecorderOption::ShowIndicator,
+        ),
+        dir,
     ])
     .spacing(10)
 }

@@ -20,6 +20,8 @@ pub struct Config {
     pub toggle_hotkey: String,
     pub clipboard_hotkey: String,
     pub screenshot_hotkey: String,
+    pub recorder_hotkey: String,
+    pub recorder: RecorderConfig,
     pub buffer_rules: Buffer,
     pub event_duration: u32,
     pub main_page: MainPage,
@@ -45,6 +47,8 @@ impl Default for Config {
             toggle_hotkey: "ALT+SPACE".to_string(),
             clipboard_hotkey: "SUPER+SHIFT+C".to_string(),
             screenshot_hotkey: "SUPER+SHIFT+S".to_string(),
+            recorder_hotkey: "SUPER+SHIFT+R".to_string(),
+            recorder: RecorderConfig::default(),
             buffer_rules: Buffer::default(),
             theme: Theme::default(),
             start_at_login: false,
@@ -224,6 +228,74 @@ impl Theme {
     }
 }
 
+/// Settings for the built-in screen recorder.
+///
+/// - `aspect_lock`: every frame is fitted (letterboxed) into a fixed
+///   `output_width`×`output_height` canvas, so resizing or re-shaping the locked
+///   window never changes the video's dimensions. When off, the video keeps the
+///   size the window had when recording started.
+/// - Other windows can be *added* to a running locked recording; they are drawn
+///   on top of the locked window where they really are (`picture_in_picture`
+///   off) or as corner tiles (on).
+/// - `keep_recording_when_minimized`: minimizing a locked window "ghosts" it
+///   instead (invisible, click-through, behind other windows) so its content keeps
+///   rendering and stays in the recording; activating it again brings it back.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(default)]
+pub struct RecorderConfig {
+    pub fps: u32,
+    pub aspect_lock: bool,
+    pub output_width: u32,
+    pub output_height: u32,
+    pub keep_recording_when_minimized: bool,
+    pub show_cursor: bool,
+    pub record_audio: bool,
+    pub show_indicator: bool,
+    /// Windows added to a locked recording are shown as tidy corner tiles
+    /// instead of at their real position over the locked window.
+    pub picture_in_picture: bool,
+    pub output_dir: String,
+}
+
+impl Default for RecorderConfig {
+    fn default() -> Self {
+        Self {
+            fps: 30,
+            aspect_lock: true,
+            output_width: 1920,
+            output_height: 1080,
+            keep_recording_when_minimized: true,
+            show_cursor: true,
+            record_audio: false,
+            show_indicator: true,
+            picture_in_picture: false,
+            output_dir: "~/Videos/RustCast".to_string(),
+        }
+    }
+}
+
+impl RecorderConfig {
+    /// Frames per second clamped to a sane range.
+    pub fn fps(&self) -> u32 {
+        self.fps.clamp(1, 120)
+    }
+
+    /// The fixed output size used when `aspect_lock` is on, rounded down to even
+    /// numbers (H.264 / yuv420p requires even dimensions).
+    pub fn output_size(&self) -> (u32, u32) {
+        (
+            (self.output_width.clamp(16, 7680)) & !1,
+            (self.output_height.clamp(16, 4320)) & !1,
+        )
+    }
+
+    /// The output directory with `~` expanded.
+    pub fn output_dir(&self) -> std::path::PathBuf {
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+        std::path::PathBuf::from(self.output_dir.replacen('~', &home, 1))
+    }
+}
+
 /// The rules for the buffer AKA search results
 ///
 /// - clear_on_hide is whether the buffer should be cleared when the window is hidden
@@ -293,6 +365,33 @@ mod tests {
         assert_eq!(config.search_dirs, vec!["~".to_string()]);
         assert_eq!(config.debounce_delay, 300);
         assert_eq!(config.main_page, MainPage::Blank);
+        assert_eq!(config.recorder_hotkey, "SUPER+SHIFT+R");
+        assert!(config.recorder.aspect_lock);
+    }
+
+    #[test]
+    fn recorder_output_size_is_even_and_clamped() {
+        let rec = RecorderConfig {
+            output_width: 1281,
+            output_height: 3,
+            ..RecorderConfig::default()
+        };
+        assert_eq!(rec.output_size(), (1280, 16));
+        assert_eq!(
+            RecorderConfig {
+                fps: 0,
+                ..rec.clone()
+            }
+            .fps(),
+            1
+        );
+    }
+
+    #[test]
+    fn old_configs_without_recorder_fields_still_parse() {
+        let cfg: Config = toml::from_str("toggle_hotkey = \"ALT+SPACE\"\n").unwrap();
+        assert_eq!(cfg.recorder, RecorderConfig::default());
+        assert_eq!(cfg.recorder_hotkey, "SUPER+SHIFT+R");
     }
 
     #[test]

@@ -339,6 +339,7 @@ pub struct Hotkeys {
     pub toggle: Shortcut,
     pub clipboard_hotkey: Shortcut,
     pub screenshot_hotkey: Shortcut,
+    pub recorder_hotkey: Shortcut,
     pub shells: HashMap<Shortcut, Shelly>,
 }
 
@@ -348,12 +349,13 @@ impl Hotkeys {
             self.toggle.clone(),
             self.clipboard_hotkey.clone(),
             self.screenshot_hotkey.clone(),
+            self.recorder_hotkey,
         ];
         a.extend(self.shell_hotkeys());
         a
     }
 
-    /// Only the user-defined shell-command hotkeys. On GNOME the three core
+    /// Only the user-defined shell-command hotkeys. On GNOME the four core
     /// hotkeys are handled by the gsettings backend, so the in-process X11
     /// grab registers just these to avoid double-firing.
     pub fn shell_hotkeys(&self) -> Vec<Shortcut> {
@@ -394,7 +396,14 @@ impl Tile {
             }
             _ => None,
         });
+        // Tick the recorder page's "● REC 00:12" row once a second.
+        let recorder_clock = if self.visible && self.page == Page::Recorder {
+            iced::time::every(Duration::from_secs(1)).map(|_| Message::RecorderChanged)
+        } else {
+            Subscription::none()
+        };
         Subscription::batch([
+            recorder_clock,
             Subscription::run(handle_hot_reloading),
             keyboard,
             Subscription::run(crate::platform::urlscheme::url_stream),

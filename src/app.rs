@@ -41,6 +41,7 @@ pub enum Page {
     ClipboardHistory,
     EmojiSearch,
     Settings,
+    Recorder,
 }
 
 /// The settings panel tabs
@@ -48,7 +49,44 @@ pub enum Page {
 pub enum SettingsTab {
     General,
     Appearance,
+    Recorder,
     Commands,
+}
+
+/// On/off options of the screen recorder, toggled from the recorder page or
+/// the settings tab.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecorderOption {
+    AspectLock,
+    KeepWhenMinimized,
+    ShowCursor,
+    RecordAudio,
+    ShowIndicator,
+    PictureInPicture,
+}
+
+impl RecorderOption {
+    pub fn get(self, cfg: &crate::config::RecorderConfig) -> bool {
+        match self {
+            RecorderOption::AspectLock => cfg.aspect_lock,
+            RecorderOption::KeepWhenMinimized => cfg.keep_recording_when_minimized,
+            RecorderOption::ShowCursor => cfg.show_cursor,
+            RecorderOption::RecordAudio => cfg.record_audio,
+            RecorderOption::ShowIndicator => cfg.show_indicator,
+            RecorderOption::PictureInPicture => cfg.picture_in_picture,
+        }
+    }
+
+    pub fn set(self, cfg: &mut crate::config::RecorderConfig, value: bool) {
+        match self {
+            RecorderOption::AspectLock => cfg.aspect_lock = value,
+            RecorderOption::KeepWhenMinimized => cfg.keep_recording_when_minimized = value,
+            RecorderOption::ShowCursor => cfg.show_cursor = value,
+            RecorderOption::RecordAudio => cfg.record_audio = value,
+            RecorderOption::ShowIndicator => cfg.show_indicator = value,
+            RecorderOption::PictureInPicture => cfg.picture_in_picture = value,
+        }
+    }
 }
 
 /// Actions that open a native file dialog
@@ -85,6 +123,11 @@ pub enum ResetField {
     Modes,
     SearchDirs,
     ShellCommands,
+    RecorderHotkey,
+    RecorderFps,
+    RecorderOutputSize,
+    RecorderOutputDir,
+    RecorderOption(RecorderOption),
 }
 
 impl std::fmt::Display for Page {
@@ -95,6 +138,7 @@ impl std::fmt::Display for Page {
             Page::EmojiSearch => "Emoji search",
             Page::ClipboardHistory => "Clipboard history",
             Page::Settings => "Settings",
+            Page::Recorder => "Screen recorder",
         })
     }
 }
@@ -168,6 +212,18 @@ pub enum Message {
     DebouncedSearch(Id),
     ThemeModeChanged(bool),
     SimulatePaste(i32),
+    /// The recorder started/stopped/failed — refresh the recorder page.
+    RecorderChanged,
+    RecorderStart(crate::recorder::RecordTarget),
+    RecorderStop,
+    /// Bring another window into the running locked recording (or take it out).
+    RecorderAddWindow(u32, String),
+    RecorderRemoveWindow(u32),
+    /// Show the recorder page (opening the launcher if needed).
+    OpenRecorderPage,
+    RecorderToggle(RecorderOption),
+    /// Run several Jev steps in order.
+    JevRunAll(Vec<Message>),
 }
 
 #[derive(Debug, Clone)]
@@ -190,6 +246,17 @@ pub enum SetConfigFields {
     SetThemeFields(SetConfigThemeFields),
     SetBufferFields(SetConfigBufferFields),
     ClipboardPasteOnSelect(bool),
+    SetRecorderFields(SetConfigRecorderFields),
+}
+
+#[derive(Debug, Clone)]
+pub enum SetConfigRecorderFields {
+    Hotkey(String),
+    Fps(u32),
+    OutputWidth(u32),
+    OutputHeight(u32),
+    OutputDir(String),
+    Option(RecorderOption, bool),
 }
 
 #[derive(Debug, Clone)]
@@ -288,7 +355,7 @@ impl ToApps for HashMap<String, String> {
 impl DebouncePolicy for Page {
     fn debounce_delay(&self, config: &Config) -> Option<Duration> {
         match self {
-            Page::Main | Page::ClipboardHistory | Page::Settings => None,
+            Page::Main | Page::ClipboardHistory | Page::Settings | Page::Recorder => None,
             Page::FileSearch | Page::EmojiSearch => {
                 Some(Duration::from_millis(config.debounce_delay))
             }
@@ -308,6 +375,24 @@ mod tests {
         assert_eq!(Page::ClipboardHistory.to_string(), "Clipboard history");
         assert_eq!(Page::EmojiSearch.to_string(), "Emoji search");
         assert_eq!(Page::Settings.to_string(), "Settings");
+        assert_eq!(Page::Recorder.to_string(), "Screen recorder");
+    }
+
+    #[test]
+    fn recorder_options_round_trip() {
+        let mut cfg = crate::config::RecorderConfig::default();
+        for opt in [
+            RecorderOption::AspectLock,
+            RecorderOption::KeepWhenMinimized,
+            RecorderOption::ShowCursor,
+            RecorderOption::RecordAudio,
+            RecorderOption::ShowIndicator,
+            RecorderOption::PictureInPicture,
+        ] {
+            let before = opt.get(&cfg);
+            opt.set(&mut cfg, !before);
+            assert_eq!(opt.get(&cfg), !before);
+        }
     }
 
     #[test]
