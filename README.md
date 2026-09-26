@@ -42,6 +42,10 @@ Rust-powered productivity launcher, plus these new features:
      where you place them, or — with **Picture-in-Picture** — as tidy rounded
      corner tiles. Switch layouts or remove windows mid-recording.
    - **Full screen** recording of any monitor.
+   - **A locked recording shows only the windows you chose** — the locked one
+     and any you added. Nothing else ever gets in: not windows on top of it,
+     not RustCast, and not the mouse pointer while you're working in another
+     window (the pointer is drawn only when it's really over a recorded window).
    - **RustCast never appears in its own recordings.** A locked recording only
      reads the locked window, and RustCast's windows (launcher, ● REC pill,
      screenshot thumbnails) can't be locked onto or added. In full-screen
