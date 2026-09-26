@@ -355,6 +355,85 @@ pub fn pip_slots(area: RectI, sizes: &[(u32, u32)]) -> Vec<RectI> {
     slots
 }
 
+/// Copy the `rect` area from `src` into `dst`; both are `stride`-wide BGRx
+/// images of the same size. Parts of `rect` outside the image are ignored.
+pub fn copy_rect(dst: &mut [u8], src: &[u8], width: u32, height: u32, rect: RectI) {
+    let stride = width as usize * BPP;
+    let Some(r) = rect.intersect(&RectI::new(0, 0, width as i32, height as i32)) else {
+        return;
+    };
+    if dst.len() < stride * height as usize || src.len() < stride * height as usize {
+        return;
+    }
+    for y in r.y..r.y + r.h {
+        let a = y as usize * stride + r.x as usize * BPP;
+        let b = a + r.w as usize * BPP;
+        dst[a..b].copy_from_slice(&src[a..b]);
+    }
+}
+
+/// Fill the `rect` area of a BGRx image with one colour.
+pub fn fill_rect(dst: &mut [u8], width: u32, height: u32, rect: RectI, bgr: [u8; 3]) {
+    let stride = width as usize * BPP;
+    let Some(r) = rect.intersect(&RectI::new(0, 0, width as i32, height as i32)) else {
+        return;
+    };
+    for y in r.y..r.y + r.h {
+        for x in r.x..r.x + r.w {
+            let o = y as usize * stride + x as usize * BPP;
+            if let Some(px) = dst.get_mut(o..o + 3) {
+                px.copy_from_slice(&bgr);
+            }
+        }
+    }
+}
+
+/// Draw a `w`×`h` patch (tightly packed, 32 bits per pixel) at `(x, y)` of a
+/// BGRx image, clipped. With `alpha` the patch is premultiplied ARGB (depth-32
+/// windows: rounded corners, client-side shadows) and is blended "over";
+/// otherwise it is copied.
+#[allow(clippy::too_many_arguments)]
+pub fn draw_patch(
+    dst: &mut [u8],
+    width: u32,
+    height: u32,
+    patch: &[u8],
+    x: i32,
+    y: i32,
+    w: u32,
+    h: u32,
+    alpha: bool,
+) {
+    let stride = width as usize * BPP;
+    let target = RectI::new(x, y, w as i32, h as i32);
+    let Some(r) = target.intersect(&RectI::new(0, 0, width as i32, height as i32)) else {
+        return;
+    };
+    if patch.len() < w as usize * h as usize * BPP {
+        return;
+    }
+    for row in r.y..r.y + r.h {
+        let sy = (row - y) as usize;
+        for col in r.x..r.x + r.w {
+            let sx = (col - x) as usize;
+            let s = (sy * w as usize + sx) * BPP;
+            let d = row as usize * stride + col as usize * BPP;
+            if alpha {
+                let a = patch[s + 3] as u32;
+                if a == 0 {
+                    continue;
+                }
+                for c in 0..3 {
+                    let v = patch[s + c] as u32 + (dst[d + c] as u32 * (255 - a) + 127) / 255;
+                    dst[d + c] = v.min(255) as u8;
+                }
+            } else {
+                dst[d..d + 3].copy_from_slice(&patch[s..s + 3]);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -430,6 +509,34 @@ mod tests {
         // Rounded corner: the layer (B=0) is not drawn there, only shadow.
         assert!(px(10, 10)[0] > 100);
         assert!(px(15, 32)[0] < 200); // shadow below the layer darkens
+    }
+
+    #[test]
+    fn copy_and_fill_rect_touch_only_the_rect() {
+        let mut dst = solid(4, 4, [1, 1, 1]);
+        let src = solid(4, 4, [9, 9, 9]);
+        copy_rect(&mut dst, &src, 4, 4, RectI::new(2, 2, 10, 10)); // clipped
+        assert_eq!(&dst[(3 * 4 + 3) * 4..(3 * 4 + 3) * 4 + 3], [9, 9, 9]);
+        assert_eq!(&dst[0..3], [1, 1, 1]);
+        fill_rect(&mut dst, 4, 4, RectI::new(-1, -1, 2, 2), [5, 5, 5]);
+        assert_eq!(&dst[0..3], [5, 5, 5]);
+        assert_eq!(&dst[4..7], [1, 1, 1]);
+    }
+
+    #[test]
+    fn draw_patch_copies_or_blends_premultiplied() {
+        let mut dst = solid(3, 1, [100, 100, 100]);
+        // opaque red, transparent, 50% (premultiplied) blue
+        let patch = [0, 0, 255, 255, 0, 0, 0, 0, 128, 0, 0, 128];
+        draw_patch(&mut dst, 3, 1, &patch, 0, 0, 3, 1, true);
+        assert_eq!(&dst[0..3], [0, 0, 255]);
+        assert_eq!(&dst[4..7], [100, 100, 100]);
+        assert!(dst[8] > 150 && dst[10] < 60, "{:?}", &dst[8..11]);
+
+        let mut dst = solid(3, 1, [100, 100, 100]);
+        draw_patch(&mut dst, 3, 1, &patch, 1, 0, 3, 1, false); // clipped copy
+        assert_eq!(&dst[0..3], [100, 100, 100]);
+        assert_eq!(&dst[4..7], [0, 0, 255]);
     }
 
     #[test]

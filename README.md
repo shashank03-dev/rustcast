@@ -42,6 +42,18 @@ Rust-powered productivity launcher, plus these new features:
      where you place them, or — with **Picture-in-Picture** — as tidy rounded
      corner tiles. Switch layouts or remove windows mid-recording.
    - **Full screen** recording of any monitor.
+   - **RustCast never appears in its own recordings.** A locked recording only
+     reads the locked window, and RustCast's windows (launcher, ● REC pill,
+     screenshot thumbnails) can't be locked onto or added. In full-screen
+     recordings on X11 they are painted out of every frame and the windows
+     underneath are rebuilt, so you can use RustCast while recording.
+   - **Edge cases handled**: the locked window keeps recording when you switch
+     workspaces (it follows you invisibly and goes back to its workspace);
+     closing it ends the recording and saves the file; quitting RustCast,
+     logging out or `kill` finish the video properly and restore any hidden
+     window; a crash in the recorder can't leave a window invisible; video
+     length always matches real time, even on a slow machine; if the pill
+     crashes the recording continues (stop it with the hotkey).
    - **Aspect lock** (default 1920×1080): every frame is fitted into a fixed
      size, so resizing the window never changes the video.
    - Cursor, audio, FPS, output folder (`~/Videos/RustCast`) — in the page's
@@ -133,6 +145,21 @@ picture_in_picture = false    # layout for windows added to a locked recording
 output_dir = "~/Videos/RustCast"
 ```
 
+## Tests
+
+```sh
+cargo test                      # unit tests
+# Live recorder tests (need an X server + window manager, ffmpeg):
+Xvfb :99 & DISPLAY=:99 openbox &
+cargo build                     # also exercises the real ● REC pill
+DISPLAY=:99 cargo test recorder::live -- --ignored --test-threads=1
+```
+
+The live tests create their own windows and check real video pixels: overlaps
+never leak into a locked recording, added windows do appear, RustCast windows
+never appear (locked or full screen, including ones opening mid-recording),
+minimized and other-workspace windows keep recording and are restored.
+
 ## Known limitations
 
 - **Calendar `Events` page** is empty; there is no portable Linux calendar source
@@ -143,4 +170,7 @@ output_dir = "~/Videos/RustCast"
   native-Wayland-only window may not accept the XDND drop.
 - **Recorder on Wayland**: native-Wayland windows go through the system picker,
   so the minimize trick and adding windows only apply to X11/XWayland windows.
+  In a Wayland *full-screen* recording the compositor draws everything, so
+  RustCast can't paint itself out: the ● REC pill is not shown (stop with the
+  hotkey) and opening the launcher mid-recording will appear in the video.
 - App launching uses `.desktop` entries (`gio launch`) and `xdg-open`.

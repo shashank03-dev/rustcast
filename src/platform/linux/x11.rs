@@ -314,50 +314,56 @@ pub fn client_windows() -> Vec<ClientWindow> {
     };
     let wins: Vec<u32> = reply.value32().map(|i| i.collect()).unwrap_or_default();
 
+    wins.into_iter().map(|w| describe(&x, w)).collect()
+}
+
+/// Title, class, pid and minimized state of one window.
+fn describe(x: &X11, w: u32) -> ClientWindow {
     let net_name = x.atom("_NET_WM_NAME");
     let utf8 = x.atom("UTF8_STRING");
     let net_pid = x.atom("_NET_WM_PID");
     let net_state = x.atom("_NET_WM_STATE");
     let hidden = x.atom("_NET_WM_STATE_HIDDEN");
 
-    wins.into_iter()
-        .map(|w| {
-            let title = net_name
-                .zip(utf8)
-                .and_then(|(prop, ty)| string_property(&x, w, prop, ty))
-                .or_else(|| {
-                    string_property(&x, w, AtomEnum::WM_NAME.into(), AtomEnum::STRING.into())
-                })
-                .unwrap_or_default();
-            let class = string_property(&x, w, AtomEnum::WM_CLASS.into(), AtomEnum::STRING.into())
-                .map(|s| s.replace('\0', " ").trim().to_string())
-                .unwrap_or_default();
-            let pid = net_pid.and_then(|a| {
-                x.conn
-                    .get_property(false, w, a, AtomEnum::CARDINAL, 0, 1)
-                    .ok()?
-                    .reply()
-                    .ok()?
-                    .value32()?
-                    .next()
-            });
-            let minimized = net_state.zip(hidden).is_some_and(|(state, hidden)| {
-                x.conn
-                    .get_property(false, w, state, AtomEnum::ATOM, 0, 64)
-                    .ok()
-                    .and_then(|c| c.reply().ok())
-                    .and_then(|r| r.value32().map(|mut v| v.any(|a| a == hidden)))
-                    .unwrap_or(false)
-            });
-            ClientWindow {
-                id: w,
-                title,
-                class,
-                pid,
-                minimized,
-            }
-        })
-        .collect()
+    let title = net_name
+        .zip(utf8)
+        .and_then(|(prop, ty)| string_property(x, w, prop, ty))
+        .or_else(|| string_property(x, w, AtomEnum::WM_NAME.into(), AtomEnum::STRING.into()))
+        .unwrap_or_default();
+    let class = string_property(x, w, AtomEnum::WM_CLASS.into(), AtomEnum::STRING.into())
+        .map(|s| s.replace('\0', " ").trim().to_string())
+        .unwrap_or_default();
+    let pid = net_pid.and_then(|a| {
+        x.conn
+            .get_property(false, w, a, AtomEnum::CARDINAL, 0, 1)
+            .ok()?
+            .reply()
+            .ok()?
+            .value32()?
+            .next()
+    });
+    let minimized = net_state.zip(hidden).is_some_and(|(state, hidden)| {
+        x.conn
+            .get_property(false, w, state, AtomEnum::ATOM, 0, 64)
+            .ok()
+            .and_then(|c| c.reply().ok())
+            .and_then(|r| r.value32().map(|mut v| v.any(|a| a == hidden)))
+            .unwrap_or(false)
+    });
+    ClientWindow {
+        id: w,
+        title,
+        class,
+        pid,
+        minimized,
+    }
+}
+
+/// Describe any window by id (managed or not). `None` if it doesn't exist.
+pub fn window_info(id: u32) -> Option<ClientWindow> {
+    let x = X11::open()?;
+    x.conn.get_window_attributes(id).ok()?.reply().ok()?;
+    Some(describe(&x, id))
 }
 
 /// Enumerate normal toplevel windows from `_NET_CLIENT_LIST`, returning

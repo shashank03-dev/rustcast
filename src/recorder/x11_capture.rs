@@ -55,6 +55,9 @@ struct Atoms {
     net_active_window: Atom,
     net_wm_opacity: Atom,
     gtk_frame_extents: Atom,
+    net_wm_desktop: Atom,
+    net_current_desktop: Atom,
+    net_wm_state_sticky: Atom,
 }
 
 /// Saved state of a window we ghosted, so it can be restored exactly.
@@ -64,6 +67,11 @@ struct GhostState {
     /// Focus has been somewhere else since ghosting; a later activation of the
     /// ghost is then the user bringing it back.
     seen_other: bool,
+    /// The window was minimized when ghosted (restore to minimized on stop).
+    was_minimized: bool,
+    /// The window lives on another workspace: it was made sticky so it keeps
+    /// rendering; this is its real workspace.
+    desktop: Option<u32>,
     /// (window, original opacity, original input-shape rectangles)
     saved: Vec<(Window, Option<u32>, Option<Vec<Rectangle>>)>,
 }
@@ -147,6 +155,9 @@ impl WindowCapture {
             net_active_window: intern("_NET_ACTIVE_WINDOW"),
             net_wm_opacity: intern("_NET_WM_WINDOW_OPACITY"),
             gtk_frame_extents: intern("_GTK_FRAME_EXTENTS"),
+            net_wm_desktop: intern("_NET_WM_DESKTOP"),
+            net_current_desktop: intern("_NET_CURRENT_DESKTOP"),
+            net_wm_state_sticky: intern("_NET_WM_STATE_STICKY"),
         };
 
         let shm_supported = conn
@@ -460,8 +471,29 @@ impl WindowCapture {
             .filter(|w| *w != 0)
     }
 
-    /// True when the window manager has minimized (iconified) the window.
+    /// True when the user minimized the window (not merely left it behind on
+    /// another workspace).
     pub fn is_minimized(&self) -> bool {
+        let hidden = self
+            .conn
+            .get_property(
+                false,
+                self.win,
+                self.atoms.net_wm_state,
+                AtomEnum::ATOM,
+                0,
+                64,
+            )
+            .ok()
+            .and_then(|c| c.reply().ok())
+            .and_then(|r| r.value32().map(|v| v.collect::<Vec<u32>>()))
+            .is_some_and(|v| v.contains(&self.atoms.net_wm_state_hidden));
+        if hidden {
+            return true;
+        }
+        // Some window managers also mark windows on *other workspaces* as
+        // Iconic, so ICCCM IconicState alone only means "minimized" when the
+        // window is on the workspace being shown.
         let iconic = self
             .conn
             .get_property(
@@ -476,21 +508,25 @@ impl WindowCapture {
             .and_then(|c| c.reply().ok())
             .and_then(|r| r.value32().and_then(|mut v| v.next()))
             == Some(3);
-        iconic
-            || self
-                .conn
-                .get_property(
-                    false,
-                    self.win,
-                    self.atoms.net_wm_state,
-                    AtomEnum::ATOM,
-                    0,
-                    64,
-                )
-                .ok()
-                .and_then(|c| c.reply().ok())
-                .and_then(|r| r.value32().map(|v| v.collect::<Vec<u32>>()))
-                .is_some_and(|v| v.contains(&self.atoms.net_wm_state_hidden))
+        iconic && self.other_desktop().is_none()
+    }
+
+    fn cardinal(&self, win: Window, atom: Atom) -> Option<u32> {
+        self.conn
+            .get_property(false, win, atom, AtomEnum::CARDINAL, 0, 1)
+            .ok()?
+            .reply()
+            .ok()?
+            .value32()?
+            .next()
+    }
+
+    /// The window's workspace when it is on a *different* workspace than the
+    /// one shown (windows there are unmapped by the window manager).
+    pub fn other_desktop(&self) -> Option<u32> {
+        let mine = self.cardinal(self.win, self.atoms.net_wm_desktop)?;
+        let current = self.cardinal(self.root, self.atoms.net_current_desktop)?;
+        (mine != 0xFFFF_FFFF && mine != current).then_some(mine)
     }
 
     pub fn is_ghosted(&self) -> bool {
@@ -507,11 +543,12 @@ impl WindowCapture {
         );
     }
 
-    /// Turn a minimized window into an invisible, click-through window that
-    /// keeps rendering (and therefore keeps being recorded).
+    /// Turn a window that stopped rendering — minimized, or left behind on
+    /// another workspace — into an invisible, click-through window that keeps
+    /// rendering (and therefore keeps being recorded).
     pub fn ghost(&mut self) {
         if let Some(ghost) = self.ghost.as_mut() {
-            // Minimized again while ghosted (e.g. "show desktop"): map it again.
+            // Hidden again while ghosted (e.g. "show desktop"): map it again.
             if ghost.since.elapsed() > Duration::from_millis(500) {
                 ghost.since = Instant::now();
                 ghost.seen_other = false;
@@ -520,8 +557,13 @@ impl WindowCapture {
             }
             return;
         }
+        let was_minimized = self.is_minimized();
+        let desktop = self.other_desktop();
+        if !was_minimized && desktop.is_none() {
+            return; // just mid-remap; the previous frame covers it
+        }
         let prev_active = self.active_window().filter(|w| *w != self.win);
-        // The frame may have been replaced while minimized; look it up again.
+        // The frame may have been replaced while hidden; look it up again.
         self.frame = self.toplevel_of(self.win);
 
         let mut targets = vec![self.win];
@@ -569,21 +611,42 @@ impl WindowCapture {
                 &[],
             );
         }
-        // Keep it under normal windows, then map it (ICCCM: Iconic → Normal).
+        // Keep it under normal windows.
         self.send_wm_message(
             self.atoms.net_wm_state,
             [1, self.atoms.net_wm_state_below, 0, 1, 0],
         );
-        let _ = self.conn.map_window(self.win);
+        if desktop.is_some() {
+            // On every workspace → mapped (rendering) wherever the user is.
+            // Window managers support one or both of these requests.
+            self.send_wm_message(
+                self.atoms.net_wm_state,
+                [1, self.atoms.net_wm_state_sticky, 0, 1, 0],
+            );
+            self.send_wm_message(self.atoms.net_wm_desktop, [0xFFFF_FFFF, 2, 0, 0, 0]);
+        }
+        if was_minimized {
+            // ICCCM: Iconic → Normal
+            let _ = self.conn.map_window(self.win);
+        }
         let _ = self.conn.flush();
 
         self.ghost = Some(GhostState {
             since: Instant::now(),
             prev_active,
             seen_other: false,
+            was_minimized,
+            desktop,
             saved,
         });
-        log::info!("Recorder: locked window minimized — ghosted it to keep recording");
+        log::info!(
+            "Recorder: locked window {} — ghosted it to keep recording",
+            if desktop.is_some() {
+                "is on another workspace"
+            } else {
+                "minimized"
+            }
+        );
     }
 
     /// Some other window to hand keyboard focus to: the one focused before, or
@@ -613,10 +676,36 @@ impl WindowCapture {
     /// invisible ghost when it was re-mapped, and un-ghosts the window once the
     /// *user* activates it again (e.g. from the dock or alt-tab).
     pub fn tick_ghost(&mut self) {
+        // Back on the window's own workspace: it is visible there again.
+        if let Some(orig) = self.ghost.as_ref().and_then(|g| g.desktop)
+            && self.cardinal(self.root, self.atoms.net_current_desktop) == Some(orig)
+        {
+            let minimized = self.ghost.as_ref().is_some_and(|g| g.was_minimized);
+            log::info!("Recorder: back on the locked window's workspace");
+            if minimized {
+                // Still minimized by the user: stay ghosted, just not sticky.
+                self.unstick(orig);
+                if let Some(g) = self.ghost.as_mut() {
+                    g.desktop = None;
+                }
+            } else {
+                self.unghost(false);
+            }
+            return;
+        }
         let active = self.active_window();
         let Some(ghost) = self.ghost.as_mut() else {
             return;
         };
+        if ghost.desktop.is_some() {
+            // Sticky ghost on another workspace: never keeps the keyboard, and
+            // activation doesn't bring it back (it belongs elsewhere).
+            if active == Some(self.win) {
+                let prev = ghost.prev_active;
+                self.hand_back_focus(prev);
+            }
+            return;
+        }
         if active != Some(self.win) {
             if ghost.since.elapsed() > Duration::from_millis(150) {
                 ghost.seen_other = true;
@@ -631,6 +720,10 @@ impl WindowCapture {
         // The WM focused the ghost as a side effect of mapping it: an invisible
         // window must not keep the keyboard.
         let prev = ghost.prev_active;
+        self.hand_back_focus(prev);
+    }
+
+    fn hand_back_focus(&self, prev: Option<Window>) {
         match self.focus_fallback(prev) {
             Some(other) => {
                 let ev = ClientMessageEvent::new(
@@ -657,7 +750,18 @@ impl WindowCapture {
         let _ = self.conn.flush();
     }
 
-    /// Restore a ghosted window; with `reminimize` it goes back to minimized.
+    /// Undo "sticky" and put the window back on workspace `desktop`.
+    fn unstick(&self, desktop: u32) {
+        self.send_wm_message(
+            self.atoms.net_wm_state,
+            [0, self.atoms.net_wm_state_sticky, 0, 1, 0],
+        );
+        self.send_wm_message(self.atoms.net_wm_desktop, [desktop, 2, 0, 0, 0]);
+        let _ = self.conn.flush();
+    }
+
+    /// Restore a ghosted window: back to its own workspace, and with
+    /// `reminimize` a window the user had minimized goes back to minimized.
     pub fn unghost(&mut self, reminimize: bool) {
         let Some(ghost) = self.ghost.take() else {
             return;
@@ -694,7 +798,11 @@ impl WindowCapture {
             self.atoms.net_wm_state,
             [0, self.atoms.net_wm_state_below, 0, 1, 0],
         );
-        if reminimize {
+        if let Some(desktop) = ghost.desktop {
+            self.unstick(desktop);
+        }
+        // Only windows the user minimized go back to being minimized.
+        if reminimize && ghost.was_minimized {
             // ICCCM WM_CHANGE_STATE → IconicState
             self.send_wm_message(self.atoms.wm_change_state, [3, 0, 0, 0, 0]);
         }
