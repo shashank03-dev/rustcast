@@ -4,10 +4,12 @@
 
 use x11rb::connection::Connection;
 use x11rb::protocol::xproto::{
-    Atom, AtomEnum, ClientMessageEvent, ConnectionExt, EventMask, InputFocus, MapState, Window,
+    Atom, AtomEnum, ClientMessageEvent, ConnectionExt, EventMask, InputFocus, MapState, PropMode,
+    Window,
 };
 use x11rb::protocol::xtest::ConnectionExt as _;
 use x11rb::rust_connection::RustConnection;
+use x11rb::wrapper::ConnectionExt as _;
 
 const KEYSYM_CONTROL_L: u32 = 0xffe3;
 const KEYSYM_V: u32 = 0x0076;
@@ -295,6 +297,80 @@ pub fn set_overlay_states(win: u32) -> Option<()> {
     Some(())
 }
 
+/// KWin's blur-behind protocol: a window lists the rectangles (x, y, w, h) the
+/// compositor should blur behind it. KWin announces support by setting this
+/// property on the root window while its blur effect is loaded.
+const BLUR_BEHIND: &str = "_KDE_NET_WM_BLUR_BEHIND_REGION";
+
+/// True when a running compositor blurs behind windows that ask for it.
+pub fn compositor_blurs() -> bool {
+    let Some(x) = X11::open() else {
+        return false;
+    };
+    let Some(atom) = x.atom(BLUR_BEHIND) else {
+        return false;
+    };
+    x.conn
+        .get_property(false, x.root, atom, AtomEnum::ANY, 0, 0)
+        .ok()
+        .and_then(|c| c.reply().ok())
+        .is_some_and(|r| r.type_ != u32::from(AtomEnum::NONE))
+}
+
+/// Rectangles covering a `w`×`h` rounded rectangle of corner `radius`, one
+/// per corner row plus the body, so the blur stops at the rounded edge instead
+/// of showing in the transparent corners.
+pub fn rounded_region(w: u32, h: u32, radius: u32) -> Vec<u32> {
+    let r = radius.min(w / 2).min(h / 2);
+    let mut rects = Vec::with_capacity(4 * (r as usize * 2 + 1));
+    for i in 0..r {
+        let dy = r as f32 - i as f32 - 0.5;
+        let inset = (r as f32 - (r as f32 * r as f32 - dy * dy).max(0.0).sqrt()).round() as u32;
+        let row_w = w.saturating_sub(inset * 2);
+        rects.extend_from_slice(&[inset, i, row_w, 1]);
+        rects.extend_from_slice(&[inset, h - 1 - i, row_w, 1]);
+    }
+    if h > 2 * r {
+        rects.extend_from_slice(&[0, r, w, h - 2 * r]);
+    }
+    rects
+}
+
+/// Ask the compositor to blur behind `win`, clipped to its rounded corners.
+///
+/// `logical_width` and `radius` are in iced's logical pixels; the window's
+/// real size is read back from the server, which also gives the scale factor.
+/// A resize is granted by the window manager a moment after it is requested,
+/// so the region is refreshed while the size settles (~0.4 s, off-thread).
+pub fn set_blur_behind(win: u32, logical_width: f32, radius: f32) {
+    std::thread::spawn(move || {
+        let Some(x) = X11::open() else { return };
+        let Some(atom) = x.atom(BLUR_BEHIND) else {
+            return;
+        };
+        let mut last = (0, 0);
+        for _ in 0..25 {
+            if let Some(g) = x.conn.get_geometry(win).ok().and_then(|c| c.reply().ok()) {
+                let size = (g.width as u32, g.height as u32);
+                if size != last && size.0 > 0 && size.1 > 0 {
+                    last = size;
+                    let scale = (size.0 as f32 / logical_width.max(1.0)).clamp(1.0, 4.0);
+                    let region = rounded_region(size.0, size.1, (radius * scale).round() as u32);
+                    let _ = x.conn.change_property32(
+                        PropMode::REPLACE,
+                        win,
+                        atom,
+                        AtomEnum::CARDINAL,
+                        &region,
+                    );
+                    let _ = x.conn.flush();
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(16));
+        }
+    });
+}
+
 /// A normal toplevel application window, as listed in `_NET_CLIENT_LIST`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClientWindow {
@@ -490,4 +566,27 @@ pub fn close_window(win: u32) -> Option<()> {
     let atom = x.atom("_NET_CLOSE_WINDOW")?;
     x.send_client_message(win, atom, [0, 2, 0, 0, 0]);
     Some(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::rounded_region;
+
+    #[test]
+    fn rounded_region_covers_body_and_trims_corners() {
+        let rects = rounded_region(100, 60, 10);
+        let rows: Vec<&[u32]> = rects.chunks(4).collect();
+        // First corner row is inset, the body spans the full width.
+        assert!(rows[0][0] > 0);
+        assert_eq!(rows.last().unwrap(), &[0, 10, 100, 40]);
+        // Every rectangle stays inside the window.
+        for r in rows {
+            assert!(r[0] + r[2] <= 100 && r[1] + r[3] <= 60);
+        }
+    }
+
+    #[test]
+    fn rounded_region_without_radius_is_one_rect() {
+        assert_eq!(rounded_region(50, 20, 0), vec![0, 0, 50, 20]);
+    }
 }

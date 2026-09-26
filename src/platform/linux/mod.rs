@@ -142,6 +142,16 @@ pub fn position_launcher(handle: &WindowHandle) {
     });
 }
 
+/// Blur the desktop behind the launcher (KWin's blur-behind protocol), clipped
+/// to its rounded corners. No-op for non-X11 handles.
+pub fn blur_behind(handle: &WindowHandle, logical_width: f32, radius: f32) {
+    if let RawWindowHandle::Xlib(h) = handle.as_raw() {
+        x11::set_blur_behind(h.window as u32, logical_width, radius);
+    } else if let RawWindowHandle::Xcb(h) = handle.as_raw() {
+        x11::set_blur_behind(h.window.get(), logical_width, radius);
+    }
+}
+
 /// winit already focuses the launcher window when it opens; nothing to do.
 pub fn focus_this_app() {}
 
