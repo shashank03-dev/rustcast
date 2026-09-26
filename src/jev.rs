@@ -1189,6 +1189,25 @@ fn resolve(intent: &Intent, world: &dyn World, file_query: &mut Option<String>) 
     rows
 }
 
+/// True when the parser could only fall back to its catch-all ("open <the
+/// whole sentence>") or to help for real input, so the model should be asked.
+pub fn needs_model(input: &str) -> bool {
+    let text = input.trim().to_lowercase();
+    if text.split_whitespace().count() < 2 || matches!(text.as_str(), "what can you do") {
+        return false;
+    }
+    matches!(
+        parse(input).as_slice(),
+        [Intent::Open { within: None, .. }] | [Intent::Help]
+    )
+}
+
+/// Rows for a single intent (used for the model's pick).
+pub fn rows_for(intent: &Intent, world: &dyn World) -> Vec<App> {
+    let mut ignored = None;
+    resolve(intent, world, &mut ignored)
+}
+
 /// Turn a Jev sentence into launcher rows.
 pub fn plan(input: &str, world: &dyn World) -> Plan {
     let intents = parse(input);
@@ -1312,6 +1331,18 @@ mod tests {
         assert!(!is_jev_query("jevons"));
         assert!(!is_jev_query("open jev"));
         assert_eq!(strip_prefix("jev: open downloads"), "open downloads");
+    }
+
+    #[test]
+    fn model_is_asked_only_when_the_parser_has_to_guess() {
+        assert!(needs_model("snap this window to the left side"));
+        assert!(needs_model("hide everything so i can see my wallpaper"));
+        assert!(!needs_model("downloads"));
+        assert!(!needs_model("help"));
+        assert!(!needs_model("tile left"));
+        assert!(!needs_model("record screen"));
+        assert!(!needs_model("open notes in documents"));
+        assert!(!needs_model("open downloads and firefox"));
     }
 
     #[test]
