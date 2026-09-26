@@ -140,7 +140,7 @@ pub fn view(tile: &Tile, wid: window::Id) -> Element<'_, Message> {
                 tile.focus_id,
             ),
             Page::Settings => settings_page(tile.config.clone(), tile.settings_tab),
-            Page::FileSearch | Page::Main => container(Column::from_iter(
+            Page::FileSearch | Page::Main | Page::Recorder => container(Column::from_iter(
                 tile.results.iter().enumerate().map(|(i, app)| {
                     app.clone().render(
                         tile.config.theme.clone(),
@@ -154,7 +154,9 @@ pub fn view(tile: &Tile, wid: window::Id) -> Element<'_, Message> {
         };
 
         let results_count = match &tile.page {
-            Page::Main | Page::EmojiSearch | Page::FileSearch => tile.results.len(),
+            Page::Main | Page::EmojiSearch | Page::FileSearch | Page::Recorder => {
+                tile.results.len()
+            }
             Page::ClipboardHistory => tile.clipboard_content.len(),
             Page::Settings => 0,
         };

@@ -6,6 +6,8 @@ search_url = "https://google.com/search?q=%s"
 show_trayicon = true
 shells = []
 clipboard_hotkey = "SUPER+SHIFT+C"
+screenshot_hotkey = "SUPER+SHIFT+S"
+recorder_hotkey = "SUPER+SHIFT+R"
 
 [buffer_rules]
 clear_on_hide = true
@@ -21,3 +23,15 @@ background_opacity = 0.0
 blur = false
 show_icons = true
 show_scroll_bar = true
+
+[recorder]
+fps = 30
+aspect_lock = true
+output_width = 1920
+output_height = 1080
+keep_recording_when_minimized = true
+show_cursor = true
+record_audio = false
+show_indicator = true
+picture_in_picture = false
+output_dir = "~/Videos/RustCast"

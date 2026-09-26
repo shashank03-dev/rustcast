@@ -55,6 +55,19 @@ pub enum Function {
     Calculate(Expr),
     Quit,
     TileWindow(crate::platform::window::TilePosition),
+    /// Raise and focus one specific window (un-minimizing it).
+    FocusWindow(u32),
+    /// Politely close one specific window.
+    CloseWindow(u32),
+    /// Toggle EWMH "show desktop".
+    ShowDesktop,
+    /// Create a folder or an empty file (if missing), then open it.
+    CreatePath {
+        path: String,
+        folder: bool,
+    },
+    /// Interactive region screenshot.
+    Screenshot,
 }
 
 impl Function {
@@ -122,11 +135,57 @@ impl Function {
 
             Function::Quit => std::process::exit(0),
 
+            Function::FocusWindow(win) => {
+                let win = *win;
+                // Let the launcher hide first so it doesn't steal focus back.
+                thread::spawn(move || {
+                    thread::sleep(std::time::Duration::from_millis(120));
+                    crate::platform::linux::x11::focus_window(win);
+                });
+            }
+
+            Function::CloseWindow(win) => {
+                crate::platform::linux::x11::close_window(*win);
+            }
+
+            Function::ShowDesktop => {
+                crate::platform::linux::x11::toggle_showing_desktop();
+            }
+
+            Function::CreatePath { path, folder } => match create_path(path, *folder) {
+                Ok(()) => open_target(path),
+                Err(e) => log::warn!("Could not create {path}: {e}"),
+            },
+
+            Function::Screenshot => {
+                // Give the launcher a moment to disappear before selecting.
+                thread::spawn(|| {
+                    thread::sleep(std::time::Duration::from_millis(350));
+                    crate::app::screenshot::trigger_capture();
+                });
+            }
+
             // TileWindow is intercepted in the RunFunction handler which has
             // access to the focused window id; nothing to do here.
             Function::TileWindow(_) => {}
         }
     }
+}
+
+/// Create a folder (with parents) or an empty file, leaving existing ones as-is.
+fn create_path(path: &str, folder: bool) -> std::io::Result<()> {
+    let p = std::path::Path::new(path);
+    if folder {
+        return std::fs::create_dir_all(p);
+    }
+    if let Some(parent) = p.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(p)
+        .map(|_| ())
 }
 
 /// Encode a clipboard image (raw RGBA) to a PNG in the screenshots directory so
@@ -208,5 +267,20 @@ mod tests {
         assert!(path_to_app("", "/home/test", false).is_none());
         assert!(path_to_app("/home/test/.env", "/home/test", false).is_none());
         assert!(path_to_app("   ", "/home/test", false).is_none());
+    }
+
+    #[test]
+    fn create_path_makes_folders_and_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().join("a/b");
+        let file = dir.path().join("c/notes.txt");
+        create_path(&folder.to_string_lossy(), true).unwrap();
+        create_path(&file.to_string_lossy(), false).unwrap();
+        assert!(folder.is_dir());
+        assert!(file.is_file());
+        // Existing files are left untouched.
+        std::fs::write(&file, b"keep").unwrap();
+        create_path(&file.to_string_lossy(), false).unwrap();
+        assert_eq!(std::fs::read(&file).unwrap(), b"keep");
     }
 }

@@ -23,6 +23,7 @@ use crate::app::Move;
 use crate::app::ResetField;
 use crate::app::SetConfigBufferFields;
 use crate::app::SetConfigFields;
+use crate::app::SetConfigRecorderFields;
 use crate::app::SetConfigThemeFields;
 use crate::app::ToApp;
 use crate::app::ToApps;
@@ -148,6 +149,9 @@ pub fn handle_update(tile: &mut Tile, message: Message) -> Task<Message> {
                 "toggle" => Task::done(Message::KeyPressed(tile.hotkeys.toggle)),
                 "clipboard" => Task::done(Message::KeyPressed(tile.hotkeys.clipboard_hotkey)),
                 "screenshot" => Task::done(Message::KeyPressed(tile.hotkeys.screenshot_hotkey)),
+                "recorder" => Task::done(Message::KeyPressed(tile.hotkeys.recorder_hotkey)),
+                "recorder-stop" => Task::done(Message::RecorderStop),
+                "recorder-add" => Task::done(Message::OpenRecorderPage),
 
                 "quit" => Task::done(Message::RunFunction(Function::Quit)),
 
@@ -194,6 +198,7 @@ pub fn handle_update(tile: &mut Tile, message: Message) -> Task<Message> {
                         &tile.config.toggle_hotkey,
                         &tile.config.clipboard_hotkey,
                         &tile.config.screenshot_hotkey,
+                        &tile.config.recorder_hotkey,
                     );
                 }
                 tile.hotkeys.shell_hotkeys()
@@ -314,7 +319,7 @@ pub fn handle_update(tile: &mut Tile, message: Message) -> Task<Message> {
                 };
 
                 let quantity = match tile.page {
-                    Page::Main | Page::FileSearch | Page::ClipboardHistory => 66.5,
+                    Page::Main | Page::FileSearch | Page::ClipboardHistory | Page::Recorder => 66.5,
                     Page::EmojiSearch => 5.,
                     Page::Settings => 0.,
                 };
@@ -403,6 +408,10 @@ pub fn handle_update(tile: &mut Tile, message: Message) -> Task<Message> {
                 tile.hotkeys.screenshot_hotkey = hotkey
             }
 
+            if let Ok(hotkey) = Shortcut::parse(&new_config.recorder_hotkey) {
+                tile.hotkeys.recorder_hotkey = hotkey
+            }
+
             let mut shell_map = HashMap::new();
 
             for shell in &new_config.shells {
@@ -448,6 +457,26 @@ pub fn handle_update(tile: &mut Tile, message: Message) -> Task<Message> {
             if shortcut == tile.hotkeys.screenshot_hotkey {
                 crate::app::screenshot::trigger_capture();
                 return Task::none();
+            }
+
+            // Recorder hotkey: stops a running recording straight away,
+            // otherwise opens (or closes) the recorder page.
+            if shortcut == tile.hotkeys.recorder_hotkey {
+                if crate::recorder::is_recording() {
+                    info!("Recorder hotkey: stopping recording");
+                    return Task::done(Message::RecorderStop);
+                }
+                if !tile.visible || tile.page != Page::Recorder {
+                    return Task::done(Message::OpenRecorderPage);
+                }
+                tile.visible = false;
+                return Task::batch([
+                    window::latest()
+                        .map(|x| x.unwrap())
+                        .map(Message::HideWindow),
+                    Task::done(Message::ClearSearchQuery),
+                    Task::done(Message::ReturnFocus),
+                ]);
             }
 
             let is_clipboard_hotkey = shortcut == tile.hotkeys.clipboard_hotkey;
@@ -532,7 +561,8 @@ pub fn handle_update(tile: &mut Tile, message: Message) -> Task<Message> {
 
             tile.page = page;
 
-            let refresh_empty_main_query = if tile.page == Page::Main {
+            let refresh_empty_main_query = if tile.page == Page::Main || tile.page == Page::Recorder
+            {
                 window::latest()
                     .map(|x| x.unwrap())
                     .map(|id| Message::SearchQueryChanged(String::new(), id))
@@ -1003,6 +1033,22 @@ pub fn handle_update(tile: &mut Tile, message: Message) -> Task<Message> {
                 SetConfigFields::ClipboardPasteOnSelect(v) => {
                     final_config.cbhist_paste_on_select = v
                 }
+                SetConfigFields::SetRecorderFields(field) => match field {
+                    SetConfigRecorderFields::Hotkey(hk) => final_config.recorder_hotkey = hk,
+                    SetConfigRecorderFields::Fps(fps) => final_config.recorder.fps = fps,
+                    SetConfigRecorderFields::OutputWidth(w) => {
+                        final_config.recorder.output_width = w
+                    }
+                    SetConfigRecorderFields::OutputHeight(h) => {
+                        final_config.recorder.output_height = h
+                    }
+                    SetConfigRecorderFields::OutputDir(dir) => {
+                        final_config.recorder.output_dir = dir
+                    }
+                    SetConfigRecorderFields::Option(opt, value) => {
+                        opt.set(&mut final_config.recorder, value)
+                    }
+                },
                 SetConfigFields::ToDefault => {
                     final_config = Config::default();
                 }
@@ -1056,6 +1102,18 @@ pub fn handle_update(tile: &mut Tile, message: Message) -> Task<Message> {
                 ResetField::ShellCommands => tile.config.shells = default.shells,
                 ResetField::ClipboardPasteOnSelect => {
                     tile.config.cbhist_paste_on_select = default.cbhist_paste_on_select
+                }
+                ResetField::RecorderHotkey => tile.config.recorder_hotkey = default.recorder_hotkey,
+                ResetField::RecorderFps => tile.config.recorder.fps = default.recorder.fps,
+                ResetField::RecorderOutputSize => {
+                    tile.config.recorder.output_width = default.recorder.output_width;
+                    tile.config.recorder.output_height = default.recorder.output_height;
+                }
+                ResetField::RecorderOutputDir => {
+                    tile.config.recorder.output_dir = default.recorder.output_dir
+                }
+                ResetField::RecorderOption(opt) => {
+                    opt.set(&mut tile.config.recorder, opt.get(&default.recorder))
                 }
             }
             Task::none()
@@ -1115,6 +1173,101 @@ pub fn handle_update(tile: &mut Tile, message: Message) -> Task<Message> {
             Task::none()
         }
 
+        Message::RecorderChanged => {
+            // Rebuild the recorder rows in place (keeps the selection).
+            if tile.visible && tile.page == Page::Recorder {
+                tile.results = crate::app::pages::recorder::recorder_rows(
+                    &tile.config.recorder,
+                    &tile.query_lc,
+                );
+                tile.focus_id = tile
+                    .focus_id
+                    .min(tile.results.len().saturating_sub(1) as u32);
+                let count = tile.results.len();
+                return window::latest()
+                    .map(|x| x.unwrap())
+                    .then(move |id| resize_for_results_count(id, count));
+            }
+            Task::none()
+        }
+
+        Message::RecorderStart(target) => {
+            info!("Starting recording: {target:?}");
+            if let Err(e) = crate::recorder::start(
+                target,
+                tile.config.recorder.clone(),
+                tile.config.theme.clone(),
+                tile.sender.clone(),
+            ) {
+                log::warn!("Recorder: {e}");
+                let _ = std::process::Command::new("notify-send")
+                    .args(["-a", "RustCast", "Cannot start recording", &e])
+                    .spawn();
+            }
+            // Get the launcher out of the shot.
+            if tile.visible {
+                tile.visible = false;
+                window::latest()
+                    .map(|x| x.unwrap())
+                    .map(Message::HideWindow)
+                    .chain(Task::done(Message::ClearSearchQuery))
+                    .chain(Task::done(Message::ReturnFocus))
+            } else {
+                Task::none()
+            }
+        }
+
+        Message::OpenRecorderPage => {
+            if !tile.visible {
+                tile.last_open = Some(std::time::Instant::now());
+                tile.height = RECORDER_WINDOW_HEIGHT;
+                return Task::batch([
+                    open_window(tile.height),
+                    Task::done(Message::SwitchToPage(Page::Recorder)),
+                ]);
+            }
+            Task::done(Message::SwitchToPage(Page::Recorder))
+        }
+
+        Message::RecorderAddWindow(xid, title) => {
+            if let Err(e) = crate::recorder::add_window(xid, title) {
+                log::warn!("Recorder: {e}");
+            }
+            Task::done(Message::RecorderChanged)
+        }
+
+        Message::RecorderRemoveWindow(xid) => {
+            crate::recorder::remove_window(xid);
+            Task::done(Message::RecorderChanged)
+        }
+
+        Message::RecorderStop => {
+            crate::recorder::stop();
+            if tile.visible && tile.page == Page::Recorder {
+                tile.visible = false;
+                window::latest()
+                    .map(|x| x.unwrap())
+                    .map(Message::HideWindow)
+                    .chain(Task::done(Message::ReturnFocus))
+            } else {
+                Task::none()
+            }
+        }
+
+        Message::RecorderToggle(opt) => {
+            let value = !opt.get(&tile.config.recorder);
+            opt.set(&mut tile.config.recorder, value);
+            if opt == crate::app::RecorderOption::PictureInPicture {
+                crate::recorder::set_picture_in_picture(value);
+            }
+            persist_config(&tile.config);
+            Task::done(Message::RecorderChanged)
+        }
+
+        Message::JevRunAll(steps) => steps
+            .into_iter()
+            .fold(Task::none(), |task, step| task.chain(Task::done(step))),
+
         Message::DebouncedSearch(id) => {
             // Only execute if this is still the most recent debounce timer
             if !tile.debouncer.is_ready() {
@@ -1123,6 +1276,77 @@ pub fn handle_update(tile: &mut Tile, message: Message) -> Task<Message> {
 
             execute_query(tile, id)
         }
+    }
+}
+
+/// Height of the launcher on the recorder page (header + 5 rows + footer).
+const RECORDER_WINDOW_HEIGHT: f32 = ((5 * 55) + 35 + DEFAULT_WINDOW_HEIGHT as usize) as f32;
+
+/// Write the config file in the background (used for quick toggles that
+/// don't go through the settings page's Save button).
+fn persist_config(config: &Config) {
+    let path = std::env::var("HOME").unwrap_or_default() + "/.config/rustcast/config.toml";
+    if let Ok(text) = toml::to_string_pretty(config) {
+        thread::spawn(move || fs::write(path, text));
+    }
+}
+
+/// [`crate::jev::World`] backed by the launcher's app index and the live
+/// window list.
+struct TileWorld<'a> {
+    options: &'a AppIndex,
+}
+
+impl crate::jev::World for TileWorld<'_> {
+    fn home(&self) -> std::path::PathBuf {
+        dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/"))
+    }
+
+    fn apps(&self, query: &str) -> Vec<App> {
+        if query.is_empty() {
+            return Vec::new();
+        }
+        let mut apps: Vec<App> = self
+            .options
+            .search_prefix(query)
+            .filter(|a| {
+                matches!(
+                    &a.open_command,
+                    AppCommand::Function(Function::OpenApp(p)) if p.ends_with(".desktop")
+                )
+            })
+            .map(|a| a.to_owned())
+            .collect();
+        apps.sort_by_key(|a| {
+            (
+                !a.search_name.starts_with(query),
+                -a.ranking,
+                a.search_name.len(),
+            )
+        });
+        apps
+    }
+
+    fn windows(&self) -> Vec<crate::platform::linux::x11::ClientWindow> {
+        crate::platform::linux::x11::client_windows()
+    }
+
+    fn screen_target(&self) -> crate::recorder::RecordTarget {
+        use crate::recorder::{RecordTarget, portal};
+        if portal::is_wayland_session() {
+            return RecordTarget::Portal(portal::PortalSource::Monitor);
+        }
+        match crate::platform::linux::x11::monitors().into_iter().next() {
+            Some(m) => RecordTarget::Monitor {
+                name: m.name,
+                rect: m.rect,
+            },
+            None => RecordTarget::Portal(portal::PortalSource::Monitor),
+        }
+    }
+
+    fn wayland(&self) -> bool {
+        crate::recorder::portal::is_wayland_session()
     }
 }
 
@@ -1232,7 +1456,37 @@ fn execute_query(tile: &mut Tile, id: Id) -> Task<Message> {
                 return Task::none();
             }
         }
+        Page::Recorder => {
+            tile.results =
+                crate::app::pages::recorder::recorder_rows(&tile.config.recorder, &tile.query_lc);
+            tile.focus_id = tile
+                .focus_id
+                .min(tile.results.len().saturating_sub(1) as u32);
+            return resize_for_results_count(id, tile.results.len());
+        }
         _ => {}
+    }
+
+    // Jev, the command operator: "jev open downloads", "jev record firefox", …
+    if tile.page == Page::Main && crate::jev::is_jev_query(&tile.query) {
+        let world = TileWorld {
+            options: &tile.options,
+        };
+        let plan = crate::jev::plan(crate::jev::strip_prefix(&tile.query), &world);
+        tile.results = plan.rows;
+        // Matching files from the index stream in below Jev's own rows. An
+        // empty query cancels any file search still running for older input.
+        let file_query = plan
+            .file_query
+            .map(|q| q.to_lowercase())
+            .filter(|q| q.chars().count() >= 2)
+            .unwrap_or_default();
+        if let Some(ref sender) = tile.file_search_sender {
+            sender
+                .send((file_query, tile.config.search_dirs.clone()))
+                .ok();
+        }
+        return resize_for_results_count(id, tile.results.len());
     }
 
     if tile.page == Page::Main && tile.query_lc.is_empty() {
@@ -1501,6 +1755,7 @@ mod tests {
                 toggle: Shortcut::parse("alt+space").unwrap(),
                 clipboard_hotkey: Shortcut::parse("cmd+shift+c").unwrap(),
                 screenshot_hotkey: Shortcut::parse("super+shift+s").unwrap(),
+                recorder_hotkey: Shortcut::parse("super+shift+r").unwrap(),
                 shells: HashMap::new(),
                 handle: None,
             },

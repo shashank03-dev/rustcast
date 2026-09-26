@@ -282,9 +282,20 @@ pub fn set_overlay_states(win: u32) -> Option<()> {
     Some(())
 }
 
-/// Enumerate normal toplevel windows from `_NET_CLIENT_LIST`, returning
-/// (window, title, wm_class) tuples. Used by the quit-app feature.
-pub fn client_list() -> Vec<(u32, String, String)> {
+/// A normal toplevel application window, as listed in `_NET_CLIENT_LIST`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClientWindow {
+    pub id: u32,
+    pub title: String,
+    /// `WM_CLASS` with the NUL separator replaced by a space ("instance Class").
+    pub class: String,
+    pub pid: Option<u32>,
+    pub minimized: bool,
+}
+
+/// Enumerate normal toplevel windows from `_NET_CLIENT_LIST` (stacking order
+/// is not guaranteed), with their title, class, pid and minimized state.
+pub fn client_windows() -> Vec<ClientWindow> {
     let Some(x) = X11::open() else {
         return Vec::new();
     };
@@ -305,6 +316,9 @@ pub fn client_list() -> Vec<(u32, String, String)> {
 
     let net_name = x.atom("_NET_WM_NAME");
     let utf8 = x.atom("UTF8_STRING");
+    let net_pid = x.atom("_NET_WM_PID");
+    let net_state = x.atom("_NET_WM_STATE");
+    let hidden = x.atom("_NET_WM_STATE_HIDDEN");
 
     wins.into_iter()
         .map(|w| {
@@ -318,9 +332,124 @@ pub fn client_list() -> Vec<(u32, String, String)> {
             let class = string_property(&x, w, AtomEnum::WM_CLASS.into(), AtomEnum::STRING.into())
                 .map(|s| s.replace('\0', " ").trim().to_string())
                 .unwrap_or_default();
-            (w, title, class)
+            let pid = net_pid.and_then(|a| {
+                x.conn
+                    .get_property(false, w, a, AtomEnum::CARDINAL, 0, 1)
+                    .ok()?
+                    .reply()
+                    .ok()?
+                    .value32()?
+                    .next()
+            });
+            let minimized = net_state.zip(hidden).is_some_and(|(state, hidden)| {
+                x.conn
+                    .get_property(false, w, state, AtomEnum::ATOM, 0, 64)
+                    .ok()
+                    .and_then(|c| c.reply().ok())
+                    .and_then(|r| r.value32().map(|mut v| v.any(|a| a == hidden)))
+                    .unwrap_or(false)
+            });
+            ClientWindow {
+                id: w,
+                title,
+                class,
+                pid,
+                minimized,
+            }
         })
         .collect()
+}
+
+/// Enumerate normal toplevel windows from `_NET_CLIENT_LIST`, returning
+/// (window, title, wm_class) tuples. Used by the quit-app feature.
+pub fn client_list() -> Vec<(u32, String, String)> {
+    client_windows()
+        .into_iter()
+        .map(|w| (w.id, w.title, w.class))
+        .collect()
+}
+
+/// Client windows bottom-to-top (`_NET_CLIENT_LIST_STACKING`).
+pub fn stacking_order() -> Vec<u32> {
+    let Some(x) = X11::open() else {
+        return Vec::new();
+    };
+    let Some(atom) = x.atom("_NET_CLIENT_LIST_STACKING") else {
+        return Vec::new();
+    };
+    x.conn
+        .get_property(false, x.root, atom, AtomEnum::WINDOW, 0, u32::MAX)
+        .ok()
+        .and_then(|c| c.reply().ok())
+        .and_then(|r| r.value32().map(|v| v.collect()))
+        .unwrap_or_default()
+}
+
+/// A physical monitor (RandR 1.5 monitor object).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Monitor {
+    pub name: String,
+    pub rect: Rect,
+    pub primary: bool,
+}
+
+/// All active monitors, primary first. Falls back to the whole root window.
+pub fn monitors() -> Vec<Monitor> {
+    use x11rb::protocol::randr::ConnectionExt as _;
+    let Some(x) = X11::open() else {
+        return Vec::new();
+    };
+    let mut out: Vec<Monitor> = x
+        .conn
+        .randr_get_monitors(x.root, true)
+        .ok()
+        .and_then(|c| c.reply().ok())
+        .map(|r| {
+            r.monitors
+                .iter()
+                .map(|m| Monitor {
+                    name: x
+                        .conn
+                        .get_atom_name(m.name)
+                        .ok()
+                        .and_then(|c| c.reply().ok())
+                        .map(|n| String::from_utf8_lossy(&n.name).to_string())
+                        .unwrap_or_default(),
+                    rect: Rect {
+                        x: m.x as i32,
+                        y: m.y as i32,
+                        w: m.width as u32,
+                        h: m.height as u32,
+                    },
+                    primary: m.primary,
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    if out.is_empty() {
+        let screen = &x.conn.setup().roots[0];
+        out.push(Monitor {
+            name: "Screen".to_string(),
+            rect: Rect {
+                x: 0,
+                y: 0,
+                w: screen.width_in_pixels as u32,
+                h: screen.height_in_pixels as u32,
+            },
+            primary: true,
+        });
+    }
+    out.sort_by_key(|m| !m.primary);
+    out
+}
+
+/// Toggle EWMH "show desktop" mode (minimize / restore every window).
+pub fn toggle_showing_desktop() -> Option<()> {
+    let x = X11::open()?;
+    let atom = x.atom("_NET_SHOWING_DESKTOP")?;
+    let current = x.window_property(x.root, atom).unwrap_or(0);
+    x.send_client_message(x.root, atom, [u32::from(current == 0), 0, 0, 0, 0]);
+    Some(())
 }
 
 fn string_property(x: &X11, win: u32, prop: Atom, ty: Atom) -> Option<String> {

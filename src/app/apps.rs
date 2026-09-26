@@ -265,6 +265,7 @@ impl App {
                 Text::new(self.desc)
                     .font(theme.font())
                     .size(13)
+                    .wrapping(Wrapping::None)
                     .color(theme.text_color(0.55)),
             );
 

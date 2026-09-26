@@ -17,8 +17,8 @@ const MEDIA_KEYS: &str = "org.gnome.settings-daemon.plugins.media-keys";
 const CUSTOM_SCHEMA: &str = "org.gnome.settings-daemon.plugins.media-keys.custom-keybinding";
 const BASE_PATH: &str = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings";
 
-/// The three keybindings we manage: (id, human name, `rustcast://` host).
-const ENTRIES: [(&str, &str, &str); 3] = [
+/// The keybindings we manage: (id, human name, `rustcast://` host).
+const ENTRIES: [(&str, &str, &str); 4] = [
     ("rustcast-toggle", "RustCast Toggle", "toggle"),
     (
         "rustcast-clipboard",
@@ -26,6 +26,7 @@ const ENTRIES: [(&str, &str, &str); 3] = [
         "clipboard",
     ),
     ("rustcast-screenshot", "RustCast Screenshot", "screenshot"),
+    ("rustcast-recorder", "RustCast Screen Recorder", "recorder"),
 ];
 
 /// True when running under a GNOME session with `gsettings` available, i.e.
@@ -82,8 +83,8 @@ fn set(schema_path: &str, key: &str, value: &str) {
 /// The accelerators are RustCast hotkey strings (e.g. `"ALT+SPACE"`); empty or
 /// unparseable ones are skipped. `exe` is the absolute path invoked by the
 /// keybinding. Safe to call on every launch — it is idempotent.
-pub fn register(exe: &Path, toggle: &str, clipboard: &str, screenshot: &str) {
-    let accels = [toggle, clipboard, screenshot];
+pub fn register(exe: &Path, toggle: &str, clipboard: &str, screenshot: &str, recorder: &str) {
+    let accels = [toggle, clipboard, screenshot, recorder];
     let mut managed_paths = Vec::new();
 
     for ((id, name, host), accel) in ENTRIES.iter().zip(accels) {
@@ -237,6 +238,15 @@ mod tests {
             Some("<Super><Shift>s")
         );
         assert_eq!(to_accelerator("shift+alt").as_deref(), None);
+        assert_eq!(
+            to_accelerator("SUPER+SHIFT+R").as_deref(),
+            Some("<Super><Shift>r")
+        );
+        // "cmd" and "windows"/"super" are the same key on Linux.
+        assert_eq!(
+            to_accelerator("CMD+SHIFT+R").as_deref(),
+            Some("<Super><Shift>r")
+        );
     }
 
     #[test]
