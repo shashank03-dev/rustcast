@@ -31,19 +31,15 @@ use crate::{app::pages::clipboard::clipboard_view, platform::get_installed_apps}
 use crate::{
     app::{Message, Page, apps::App, tile::Tile},
     config::Config,
-    platform::transform_process_to_ui_element,
 };
 
 /// Initialise the app. RustCast starts in the background (tray only) — no
 /// launcher window is shown until the user triggers the toggle hotkey, which
-/// opens, configures, and focuses a window via `open_window`. This is the Linux
-/// equivalent of a macOS menu-bar app launching without a foreground window.
+/// opens, configures, and focuses a window via `open_window`.
 pub fn new(hotkeys: Hotkeys, config: &Config) -> (Tile, Task<Message>) {
     info!("Starting in background (tray only)");
 
     let events = Event::get_events(config.event_duration);
-
-    transform_process_to_ui_element();
 
     let store_icons = config.theme.show_icons;
 
@@ -73,7 +69,6 @@ pub fn new(hotkeys: Hotkeys, config: &Config) -> (Tile, Task<Message>) {
 
     (
         Tile {
-            update_available: false,
             current_mode: "Default".to_string(),
             query: String::new(),
             query_lc: String::new(),

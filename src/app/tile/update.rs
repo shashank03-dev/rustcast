@@ -16,8 +16,10 @@ use rayon::iter::ParallelIterator;
 use rayon::slice::ParallelSliceMut;
 use url::Url;
 
+use crate::app::DEFAULT_WINDOW_HEIGHT;
 use crate::app::Editable;
 use crate::app::FileDialogAction;
+use crate::app::Move;
 use crate::app::ResetField;
 use crate::app::SetConfigBufferFields;
 use crate::app::SetConfigFields;
@@ -31,7 +33,6 @@ use crate::app::default_settings;
 use crate::app::tile::AppIndex;
 use crate::app::tray::menu_icon;
 use crate::app::{Message, Page, tile::Tile};
-use crate::autoupdate::download_latest_app;
 use crate::calculator::Expr;
 use crate::commands::Function;
 use crate::config::Config;
@@ -46,8 +47,6 @@ use crate::quit::get_open_apps;
 use crate::unit_conversion;
 use crate::utils::is_valid_url;
 use crate::{app::ArrowKey, platform::focus_this_app};
-use crate::{app::DEFAULT_WINDOW_HEIGHT, platform::perform_haptic};
-use crate::{app::Move, platform::HapticPattern};
 use crate::{app::RUSTCAST_DESC_NAME, platform::get_installed_apps};
 
 fn extract_target(url: &Url) -> Option<String> {
@@ -154,17 +153,6 @@ pub fn handle_update(tile: &mut Tile, message: Message) -> Task<Message> {
 
                 _ => Task::none(),
             }
-        }
-
-        Message::UpdateAvailable => {
-            tile.update_available = true;
-
-            if tile.config.auto_update {
-                thread::spawn(|| {
-                    download_latest_app().ok();
-                });
-            }
-            Task::done(Message::ReloadConfig)
         }
 
         Message::SwitchMode(mode) => {
@@ -434,7 +422,7 @@ pub fn handle_update(tile: &mut Tile, message: Message) -> Task<Message> {
 
             if let Some(tray) = tile.tray.as_ref() {
                 tray.set_visible(new_config.show_trayicon);
-                tray.set_menu(new_config.clone(), tile.update_available);
+                tray.set_menu(new_config.clone());
             } else {
                 let tray = menu_icon(new_config.clone(), tile.sender.clone().unwrap());
                 tray.set_visible(new_config.show_trayicon);
@@ -563,10 +551,7 @@ pub fn handle_update(tile: &mut Tile, message: Message) -> Task<Message> {
         Message::RunFunction(command) => {
             if let Function::TileWindow(pos) = &command {
                 if let Some(win) = tile.frontmost_window() {
-                    let ok = crate::platform::window::tile_focused_window(win, pos);
-                    if !ok && tile.config.haptic_feedback {
-                        perform_haptic(HapticPattern::Alignment);
-                    }
+                    crate::platform::window::tile_focused_window(win, pos);
                 }
             }
             command.execute(&tile.config);
@@ -784,10 +769,6 @@ pub fn handle_update(tile: &mut Tile, message: Message) -> Task<Message> {
         Message::SearchQueryChanged(input, id) => {
             tile.focus_id = 0;
 
-            if tile.config.haptic_feedback {
-                perform_haptic(HapticPattern::Alignment);
-            }
-
             tile.query_lc = input.trim().to_lowercase();
             tile.query = input.clone();
 
@@ -990,12 +971,6 @@ pub fn handle_update(tile: &mut Tile, message: Message) -> Task<Message> {
                 SetConfigFields::PlaceHolder(placeholder) => final_config.placeholder = placeholder,
                 SetConfigFields::SetPage(page) => final_config.main_page = page,
                 SetConfigFields::DebounceDelay(delay) => final_config.debounce_delay = delay,
-                SetConfigFields::HapticFeedback(haptic_feedback) => {
-                    final_config.haptic_feedback = haptic_feedback
-                }
-                SetConfigFields::SetAutoUpdate(au) => {
-                    final_config.auto_update = au;
-                }
                 SetConfigFields::ShowMenubarIcon(show) => final_config.show_trayicon = show,
                 SetConfigFields::SetThemeFields(SetConfigThemeFields::Font(fnt)) => {
                     final_config.theme.font = Some(fnt)
@@ -1049,8 +1024,6 @@ pub fn handle_update(tile: &mut Tile, message: Message) -> Task<Message> {
                 ResetField::SearchUrl => tile.config.search_url = default.search_url,
                 ResetField::DebounceDelay => tile.config.debounce_delay = default.debounce_delay,
                 ResetField::StartAtLogin => tile.config.start_at_login = default.start_at_login,
-                ResetField::AutoUpdate => tile.config.auto_update = default.auto_update,
-                ResetField::HapticFeedback => tile.config.haptic_feedback = default.haptic_feedback,
                 ResetField::ShowMenubarIcon => tile.config.show_trayicon = default.show_trayicon,
                 ResetField::ClipboardHistory => tile.config.cbhist = default.cbhist,
                 ResetField::MainPage => tile.config.main_page = default.main_page,
@@ -1494,7 +1467,6 @@ mod tests {
             focus_id: 0,
             query: String::new(),
             current_mode: "Default".to_string(),
-            update_available: false,
             ranking: HashMap::new(),
             query_lc: String::new(),
             events: vec![],
@@ -1502,9 +1474,7 @@ mod tests {
             options: AppIndex::from_apps(vec![
                 test_app(
                     "openable",
-                    AppCommand::Function(Function::OpenApp(
-                        "/Applications/Openable.app".to_string(),
-                    )),
+                    AppCommand::Function(Function::OpenApp("openable.desktop".to_string())),
                     0,
                 ),
                 test_app(
@@ -1605,7 +1575,7 @@ mod tests {
         let mut tile = test_tile(vec![
             test_app(
                 "openable",
-                AppCommand::Function(Function::OpenApp("/Applications/Openable.app".to_string())),
+                AppCommand::Function(Function::OpenApp("openable.desktop".to_string())),
                 0,
             ),
             test_app(

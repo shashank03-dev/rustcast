@@ -1,7 +1,6 @@
 #![deny(clippy::dbg_macro)]
 
 mod app;
-mod autoupdate;
 mod calculator;
 mod clipboard;
 mod commands;
@@ -24,8 +23,6 @@ use crate::{
 
 use log::info;
 use tracing_subscriber::{EnvFilter, Layer, util::SubscriberInitExt};
-
-use crate::platform::set_activation_policy_accessory;
 
 fn main() -> iced::Result {
     // Strip AppImage/sharun library-path overrides inherited from the launching
@@ -76,8 +73,6 @@ fn main() -> iced::Result {
             return Ok(());
         }
     }
-
-    set_activation_policy_accessory();
 
     let home = std::env::var("HOME").unwrap();
 

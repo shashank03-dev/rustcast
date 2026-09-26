@@ -27,7 +27,6 @@ pub struct Config {
     pub theme: Theme,
     pub placeholder: String,
     pub search_url: String,
-    pub haptic_feedback: bool,
     pub cbhist: bool,
     pub cbhist_paste_on_select: bool,
     pub show_trayicon: bool,
@@ -37,7 +36,6 @@ pub struct Config {
     pub search_dirs: Vec<String>,
     pub log_path: String,
     pub debounce_delay: u64,
-    pub auto_update: bool,
 }
 
 impl Default for Config {
@@ -55,10 +53,6 @@ impl Default for Config {
             search_url: "https://duckduckgo.com/search?q=%s".to_string(),
             cbhist: true,
             cbhist_paste_on_select: false,
-            haptic_feedback: false,
-            // The upstream auto-updater downloads a macOS .app bundle, which is
-            // not applicable on Linux; off by default here.
-            auto_update: false,
             show_trayicon: true,
             main_page: MainPage::default(),
             search_dirs: vec!["~".to_string()],

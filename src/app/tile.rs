@@ -4,7 +4,6 @@ pub mod update;
 
 use crate::app::apps::App;
 use crate::app::{ArrowKey, Message, Move, Page};
-use crate::autoupdate::new_version_available;
 use crate::clipboard::ClipBoardContentType;
 use crate::config::{Config, Shelly};
 use crate::debounce::Debouncer;
@@ -303,7 +302,6 @@ pub struct Tile {
     pub focus_id: u32,
     pub query: String,
     pub current_mode: String,
-    pub update_available: bool,
     pub ranking: HashMap<String, i32>,
     query_lc: String,
     results: Vec<App>,
@@ -402,7 +400,7 @@ impl Tile {
             Subscription::run(crate::platform::urlscheme::url_stream),
             Subscription::run(handle_recipient),
             Subscription::run(reload_events),
-            Subscription::run(handle_version_and_rankings),
+            Subscription::run(handle_rankings),
             Subscription::run(handle_theme_mode),
             Subscription::run(handle_clipboard_history),
             Subscription::run(crate::app::screenshot::watch_subscription),
@@ -662,13 +660,13 @@ fn handle_hot_reloading() -> impl futures::Stream<Item = Message> {
         let paths = default_app_paths();
         let mut total_files: usize = paths
             .par_iter()
-            .map(|dir| count_dirs_in_dir(std::path::Path::new(dir)))
+            .map(|dir| count_entries_in_dir(std::path::Path::new(dir)))
             .sum();
 
         loop {
             let current_total_files: usize = paths
                 .par_iter()
-                .map(|dir| count_dirs_in_dir(std::path::Path::new(dir)))
+                .map(|dir| count_entries_in_dir(std::path::Path::new(dir)))
                 .sum();
 
             if total_files != current_total_files {
@@ -682,18 +680,15 @@ fn handle_hot_reloading() -> impl futures::Stream<Item = Message> {
     })
 }
 
-/// Helper fn for counting directories (since macos `.app`'s are directories) inside a directory
-fn count_dirs_in_dir(dir: impl AsRef<std::path::Path>) -> usize {
+/// Count the entries (e.g. `.desktop` files) inside an application directory
+fn count_entries_in_dir(dir: impl AsRef<std::path::Path>) -> usize {
     // Read the directory; if it fails, treat as empty
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
         Err(_) => return 0,
     };
 
-    entries
-        .filter_map(|entry| entry.ok())
-        .filter(|entry| entry.file_type().map(|t| t.is_dir()).unwrap_or(false))
-        .count()
+    entries.filter_map(|entry| entry.ok()).count()
 }
 
 #[cfg(test)]
@@ -706,9 +701,7 @@ mod tests {
     fn test_app(name: &str, ranking: i32) -> App {
         App {
             ranking,
-            open_command: AppCommand::Function(Function::OpenApp(format!(
-                "/Applications/{name}.app"
-            ))),
+            open_command: AppCommand::Function(Function::OpenApp(format!("{name}.desktop"))),
             desc: "Application".to_string(),
             icons: None,
             display_name: name.to_string(),
@@ -909,16 +902,12 @@ fn handle_theme_mode() -> impl futures::Stream<Item = Message> {
     })
 }
 
-fn handle_version_and_rankings() -> impl futures::Stream<Item = Message> {
+fn handle_rankings() -> impl futures::Stream<Item = Message> {
     stream::channel(100, async |mut output| {
         loop {
-            if new_version_available().is_some() {
-                output.send(Message::UpdateAvailable).await.ok();
-            }
-            tokio::time::sleep(Duration::from_secs(30)).await;
             output.send(Message::SaveRanking).await.ok();
             info!("Sent save ranking");
-            tokio::time::sleep(Duration::from_secs(30)).await;
+            tokio::time::sleep(Duration::from_secs(60)).await;
         }
     })
 }

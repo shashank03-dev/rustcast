@@ -53,8 +53,7 @@ For bug fixes, and helping people to solve their github issues: see
     ├── commands.rs         # Logic for different commands
     ├── clipboard.rs        # Logic for the clipboard history feature of rustcast
     ├── config.rs           # Configuration related stuff
-    ├── haptics.rs          # All Haptics related code
-    ├── macos.rs            # Macos specific config
+    ├── platform            # Linux (X11/XWayland) backend
     ├── main.rs             # Start app
     └── utils.rs            # Common functions that are used across files
 ```

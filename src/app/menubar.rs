@@ -20,7 +20,7 @@ const DISCORD_LINK: &str = "https://discord.gg/bDfNYPbnC5";
 
 use tokio::runtime::Runtime;
 
-pub fn menu_builder(config: Config, sender: ExtSender, update_item: bool) -> Menu {
+pub fn menu_builder(config: Config, sender: ExtSender) -> Menu {
     let shortcut =
         Shortcut::parse(&config.toggle_hotkey).unwrap_or(Shortcut::parse("opt+space").unwrap());
 
@@ -32,16 +32,6 @@ pub fn menu_builder(config: Config, sender: ExtSender, update_item: bool) -> Men
     init_event_handler(sender, shortcut);
 
     Menu::with_items(&[
-        &MenuItem::with_id(
-            "update",
-            if update_item {
-                "Update available"
-            } else {
-                "Up to date"
-            },
-            update_item,
-            None,
-        ),
         &version_item(),
         &about_item(tray_image()),
         &open_github_item(),
@@ -98,9 +88,6 @@ fn init_event_handler(sender: ExtSender, shortcut: Shortcut) {
                         .try_send(Message::KeyPressed(shortcut.clone()))
                         .unwrap();
                 });
-            }
-            "update" => {
-                open_url("https://github.com/RustCastLabs/rustcast/releases/latest");
             }
             "open_discord" => {
                 open_url(DISCORD_LINK);

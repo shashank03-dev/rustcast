@@ -17,7 +17,7 @@ use crate::config::Config;
 
 enum TrayCommand {
     SetVisible(bool),
-    SetMenu { config: Box<Config>, update: bool },
+    SetMenu { config: Box<Config> },
 }
 
 static TRAY_TX: OnceCell<Sender<TrayCommand>> = OnceCell::new();
@@ -31,10 +31,9 @@ impl TrayHandle {
         send(TrayCommand::SetVisible(visible));
     }
 
-    pub fn set_menu(&self, config: Config, update: bool) {
+    pub fn set_menu(&self, config: Config) {
         send(TrayCommand::SetMenu {
             config: Box::new(config),
-            update,
         });
     }
 }
@@ -59,7 +58,6 @@ pub fn menu_icon(config: Config, sender: ExtSender) -> TrayHandle {
 
     let _ = tx.send(TrayCommand::SetMenu {
         config: Box::new(config),
-        update: false,
     });
     let _ = tx.send(TrayCommand::SetVisible(true));
 
@@ -95,8 +93,8 @@ fn gtk_thread(rx: std::sync::mpsc::Receiver<TrayCommand>, sender: ExtSender) {
                             }
                         }
                     }
-                    TrayCommand::SetMenu { config, update } => {
-                        let menu = menu_builder(*config, sender.clone(), update);
+                    TrayCommand::SetMenu { config } => {
+                        let menu = menu_builder(*config, sender.clone());
                         if tray.borrow().is_none() {
                             if let Some(ic) = icon.clone() {
                                 if let Ok(built) = TrayIconBuilder::new()
