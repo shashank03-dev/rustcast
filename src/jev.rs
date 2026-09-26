@@ -789,10 +789,10 @@ fn window_matches(windows: &[ClientWindow], name: &str) -> Vec<ClientWindow> {
     if needle.is_empty() {
         return Vec::new();
     }
-    let me = std::process::id();
     let mut hits: Vec<(u8, ClientWindow)> = windows
         .iter()
-        .filter(|w| w.pid != Some(me))
+        // Jev never offers RustCast's own windows (never recorded, focused, …).
+        .filter(|w| !crate::recorder::is_rustcast_window(w))
         .filter_map(|w| {
             let rank = match_rank(&w.class, &needle)
                 .or_else(|| match_rank(&w.title, &needle).map(|r| r + 1))?;

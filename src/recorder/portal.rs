@@ -145,6 +145,7 @@ fn spawn_gst(stream: &PortalStream, width: u32, height: u32, fps: u32) -> Result
         format!("video/x-raw,format=BGRx,width={width},height={height},pixel-aspect-ratio=1/1");
     let rate = format!("video/x-raw,framerate={fps}/1");
     let mut cmd = Command::new("gst-launch-1.0");
+    cmd.process_group(0);
     cmd.args(["-e", "-q", "pipewiresrc", "fd=3"])
         .arg(format!("path={}", stream.node))
         .args([

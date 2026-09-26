@@ -52,6 +52,9 @@ fn main() -> iced::Result {
         return Ok(());
     }
 
+    // Finish recordings cleanly on logout / kill / Ctrl+C.
+    crate::recorder::install_shutdown_handler();
+
     // RustCast's global hotkeys, window tiling (EWMH), and paste injection
     // (XTEST) all rely on X11. On a Wayland session we run consistently through
     // XWayland: force winit, GTK (tray) and the clipboard onto the X11 backend

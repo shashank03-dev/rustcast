@@ -133,7 +133,11 @@ impl Function {
                 }
             },
 
-            Function::Quit => std::process::exit(0),
+            Function::Quit => {
+                // Finish a running recording (and restore ghosted windows) first.
+                crate::recorder::shutdown();
+                std::process::exit(0)
+            }
 
             Function::FocusWindow(win) => {
                 let win = *win;

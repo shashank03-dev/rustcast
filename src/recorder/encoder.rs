@@ -1,9 +1,8 @@
 //! ffmpeg process plumbing for the recorder.
 //!
-//! Frames reach ffmpeg in one of two ways:
-//! - as raw `bgr0` video on stdin (locked-window capture and the Wayland
-//!   portal path), already fitted to the final canvas size, or
-//! - via ffmpeg's own `x11grab` input (full-screen capture on X11).
+//! Frames always reach ffmpeg as raw `bgr0` video on stdin, already fitted to
+//! the final canvas size (RustCast captures them itself so it can keep its own
+//! windows out of the video).
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -30,6 +29,39 @@ pub fn detect_codec() -> Result<VideoCodec, String> {
                 .to_string()
         })?;
     Ok(pick_codec(&String::from_utf8_lossy(&out.stdout)))
+}
+
+/// Major version from `ffmpeg -version` ("ffmpeg version 6.1.1-3ubuntu5",
+/// "ffmpeg version n7.0"). Git builds ("N-112233-g…") have none.
+fn parse_major(version_line: &str) -> Option<u32> {
+    let v = version_line.split_whitespace().nth(2)?;
+    let v = v.strip_prefix('n').unwrap_or(v);
+    v.split(['.', '-']).next()?.parse().ok()
+}
+
+fn ffmpeg_major() -> Option<u32> {
+    static MAJOR: once_cell::sync::OnceCell<Option<u32>> = once_cell::sync::OnceCell::new();
+    *MAJOR.get_or_init(|| {
+        let out = Command::new("ffmpeg")
+            .arg("-version")
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .output()
+            .ok()?;
+        parse_major(String::from_utf8_lossy(&out.stdout).lines().next()?)
+    })
+}
+
+/// Constant-frame-rate output from wall-clock-stamped input: ffmpeg repeats
+/// or drops frames so the video always lasts exactly as long as the
+/// recording, even when capturing is slower than the frame rate.
+fn cfr_args(major: Option<u32>) -> [String; 2] {
+    // `-fps_mode` replaced `-vsync` in ffmpeg 5.1; unknown (git) builds are new.
+    if major.is_some_and(|m| m < 5) {
+        [s("-vsync"), s("cfr")]
+    } else {
+        [s("-fps_mode"), s("cfr")]
+    }
 }
 
 fn pick_codec(encoders: &str) -> VideoCodec {
@@ -67,6 +99,9 @@ pub fn raw_input_args(width: u32, height: u32, fps: u32) -> Vec<String> {
         s("rawvideo"),
         s("-thread_queue_size"),
         s("512"),
+        // Timestamp frames when they arrive, not by counting them.
+        s("-use_wallclock_as_timestamps"),
+        s("1"),
         s("-pixel_format"),
         s("bgr0"),
         s("-video_size"),
@@ -76,46 +111,6 @@ pub fn raw_input_args(width: u32, height: u32, fps: u32) -> Vec<String> {
         s("-i"),
         s("pipe:0"),
     ]
-}
-
-/// Input arguments for grabbing a screen rectangle with `x11grab`.
-pub fn x11grab_input_args(
-    display: &str,
-    x: i32,
-    y: i32,
-    width: u32,
-    height: u32,
-    fps: u32,
-    cursor: bool,
-) -> Vec<String> {
-    vec![
-        s("-f"),
-        s("x11grab"),
-        s("-thread_queue_size"),
-        s("512"),
-        s("-draw_mouse"),
-        (if cursor { "1" } else { "0" }).to_string(),
-        s("-framerate"),
-        fps.to_string(),
-        s("-video_size"),
-        format!("{width}x{height}"),
-        s("-i"),
-        format!("{display}+{x},{y}"),
-    ]
-}
-
-/// A video filter that fits any input into a fixed `w`×`h` frame, keeping the
-/// aspect ratio and padding the rest (the "aspect lock").
-pub fn fit_filter(w: u32, h: u32) -> String {
-    format!(
-        "scale={w}:{h}:force_original_aspect_ratio=decrease:flags=lanczos,\
-         pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:black,setsar=1"
-    )
-}
-
-/// A video filter that only trims odd pixel rows/columns (yuv420p needs even sizes).
-pub fn even_filter() -> String {
-    "crop=trunc(iw/2)*2:trunc(ih/2)*2,setsar=1".to_string()
 }
 
 /// Audio input + everything after the inputs: filters, codecs and the file.
@@ -148,6 +143,7 @@ pub fn output_args(spec: &EncodeSpec, filter: Option<String>) -> Vec<String> {
         VideoCodec::Mpeg4 => args.extend([s("-c:v"), s("mpeg4"), s("-q:v"), s("3")]),
     }
     args.extend([s("-pix_fmt"), s("yuv420p"), s("-r"), spec.fps.to_string()]);
+    args.extend(cfr_args(ffmpeg_major()));
     if spec.audio {
         args.extend([s("-c:a"), s("aac"), s("-b:a"), s("160k")]);
     } else {
@@ -172,7 +168,11 @@ impl Ffmpeg {
     /// Spawn `ffmpeg` with the given input and output arguments. `stdin` is
     /// what ffmpeg reads from (a pipe for raw frames or for the `q` command).
     pub fn spawn(input: Vec<String>, output: Vec<String>, stdin: Stdio) -> Result<Self, String> {
+        use std::os::unix::process::CommandExt;
         let mut child = Command::new("ffmpeg")
+            // Own process group: a terminal Ctrl+C must not kill the encoder
+            // mid-file; RustCast ends it by closing stdin.
+            .process_group(0)
             .args(["-hide_banner", "-loglevel", "error", "-nostats"])
             .args(input)
             .args(output)
@@ -306,19 +306,34 @@ mod tests {
     }
 
     #[test]
+    fn parses_ffmpeg_major_version() {
+        assert_eq!(
+            parse_major("ffmpeg version 6.1.1-3ubuntu5 Copyright"),
+            Some(6)
+        );
+        assert_eq!(parse_major("ffmpeg version n7.0 Copyright"), Some(7));
+        assert_eq!(
+            parse_major("ffmpeg version 4.4.2-0ubuntu0.22.04.1"),
+            Some(4)
+        );
+        assert_eq!(parse_major("ffmpeg version N-112233-gabcdef"), None);
+    }
+
+    #[test]
+    fn cfr_flag_matches_ffmpeg_version() {
+        assert_eq!(cfr_args(Some(4))[0], "-vsync");
+        assert_eq!(cfr_args(Some(6))[0], "-fps_mode");
+        assert_eq!(cfr_args(None)[0], "-fps_mode");
+    }
+
+    #[test]
     fn raw_input_describes_frame_geometry() {
         let args = raw_input_args(1280, 720, 30);
         let joined = args.join(" ");
         assert!(joined.contains("-pixel_format bgr0"));
         assert!(joined.contains("-video_size 1280x720"));
+        assert!(joined.contains("-use_wallclock_as_timestamps 1"));
         assert!(joined.ends_with("-i pipe:0"));
-    }
-
-    #[test]
-    fn x11grab_input_targets_display_offset() {
-        let args = x11grab_input_args(":1", 1920, 0, 2560, 1440, 60, false);
-        assert_eq!(args.last().unwrap(), ":1+1920,0");
-        assert!(args.join(" ").contains("-draw_mouse 0"));
     }
 
     #[test]
@@ -329,10 +344,10 @@ mod tests {
             codec: VideoCodec::X264,
             output: PathBuf::from("/tmp/out.mp4"),
         };
-        let args = output_args(&spec, Some(fit_filter(1920, 1080)));
+        let args = output_args(&spec, Some("setsar=1".to_string()));
         assert!(args.contains(&"-an".to_string()));
         assert!(!args.contains(&"pulse".to_string()));
-        assert!(args.iter().any(|a| a.starts_with("scale=1920:1080")));
+        assert!(args.contains(&"setsar=1".to_string()));
         assert_eq!(args.last().unwrap(), "/tmp/out.mp4");
 
         let args = output_args(
