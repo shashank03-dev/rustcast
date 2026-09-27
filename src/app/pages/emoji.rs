@@ -14,6 +14,17 @@ pub const EMOJI_COLUMNS: usize = 8;
 /// Side of one emoji cell.
 const CELL: f32 = 62.0;
 
+/// Emoji glyph size. The Linux build of Apple Color Emoji draws its bitmaps
+/// smaller than Noto's at the same point size, so it gets a larger size to
+/// fill the cell the same way.
+fn emoji_size() -> f32 {
+    if crate::fonts::has_apple_emoji() {
+        38.0
+    } else {
+        30.0
+    }
+}
+
 /// The emoji pages element to render
 ///
 /// Takes:
@@ -46,7 +57,7 @@ pub fn emoji_page(
                         family: crate::fonts::emoji_family(),
                         ..iced::Font::DEFAULT
                     })
-                    .size(30)
+                    .size(emoji_size())
                     .width(Length::Fill)
                     .height(Fill)
                     .align_y(Alignment::Center)
