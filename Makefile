@@ -17,9 +17,9 @@ install-start:
 uninstall:
 	./scripts/uninstall.sh
 
-# Regenerate assets/icons/ from the RustCast logo (docs/icon.png)..
+# Regenerate the brand SVGs, docs/icon.png and assets/icons/ (needs Playwright).
 icon:
-	python3 scripts/gen_icon.py
+	python3 scripts/brand/build_logo.py && node scripts/brand/render.mjs
 
 run:
 	cargo run
