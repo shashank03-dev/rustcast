@@ -763,6 +763,28 @@ fn appearance_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'s
         theme.clone(),
     );
 
+    let emoji_style = settings_item_column([
+        settings_hint_text(theme.clone(), "Emoji style"),
+        Text::new(if crate::fonts::has_apple_emoji() {
+            "iOS (Apple Color Emoji)"
+        } else {
+            "Noto Color Emoji"
+        })
+        .font(theme.font())
+        .size(13)
+        .color(styles::label(&theme, styles::PRIMARY))
+        .into(),
+        notice_item(
+            theme.clone(),
+            if crate::fonts::has_apple_emoji() {
+                "Emoji are drawn with Apple's iOS artwork"
+            } else {
+                "For iOS emoji, install \"Apple Color Emoji\" into ~/.local/share/fonts and reopen RustCast"
+            },
+        ),
+    ])
+    .into();
+
     Column::from_iter([
         theme_mode_setting,
         glass_setting,
@@ -771,6 +793,7 @@ fn appearance_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'s
         clear_on_enter,
         show_icons,
         font_family,
+        emoji_style,
         event_duration,
         text_clr,
         bg_clr,

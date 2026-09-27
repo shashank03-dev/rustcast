@@ -26,6 +26,16 @@ const SYSTEM_PREFERENCE: &[&str] = &[
     "Inter Variable",
 ];
 
+/// Colour emoji fonts, iOS/macOS first. Apple Color Emoji can't be shipped
+/// with RustCast (its license doesn't allow redistribution), but when the
+/// user has installed it RustCast draws every emoji with it.
+const EMOJI_PREFERENCE: &[&str] = &[
+    "Apple Color Emoji",
+    "Noto Color Emoji",
+    "Twemoji",
+    "JoyPixels",
+];
+
 /// A `&'static str` for `name`, allocated at most once per distinct name.
 pub fn intern(name: &str) -> &'static str {
     let mut map = INTERNED.lock().unwrap_or_else(|e| e.into_inner());
@@ -52,6 +62,25 @@ pub fn system_family() -> Family {
             .unwrap_or(Family::SansSerif)
     });
     *CHOSEN
+}
+
+/// The family emoji are drawn with: Apple Color Emoji when installed, else
+/// the best colour emoji font available. Drawing them in the UI font would
+/// let fontconfig fall back per glyph, mixing in monochrome text emoji.
+pub fn emoji_family() -> Family {
+    static CHOSEN: Lazy<Family> = Lazy::new(|| {
+        EMOJI_PREFERENCE
+            .iter()
+            .find(|name| is_installed(name))
+            .map(|name| Family::Name(name))
+            .unwrap_or(Family::Name("Noto Color Emoji"))
+    });
+    *CHOSEN
+}
+
+/// Whether emoji render with Apple's (iOS) artwork.
+pub fn has_apple_emoji() -> bool {
+    emoji_family() == Family::Name("Apple Color Emoji")
 }
 
 /// The Display optical size for a Text family (SF Pro Text → SF Pro Display),
