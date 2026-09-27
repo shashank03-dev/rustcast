@@ -196,6 +196,6 @@ fn about_item(image: DynamicImage) -> PredefinedMenuItem {
 }
 
 fn menubar_icon() -> Option<Vec<u8>> {
-    // Red Raycast-style app mark (see assets/icons/, generated at 512px).
+    // The RustCast mark (see assets/icons/, rendered from assets/brand/).
     Some(include_bytes!("../../assets/icons/rustcast.png").to_vec())
 }

@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/brand/rustcast-mark-animated.svg" width="144" alt="RustCast logo">
+</p>
+
 CS# RustCast — Linux port (X11 / XWayland)
 
 A faithful Linux port of [RustCast](https://github.com/RustCastLabs/rustcast), the
@@ -178,3 +182,15 @@ minimized and other-workspace windows keep recording and are restored.
   RustCast can't paint itself out: the ● REC pill is not shown (stop with the
   hotkey) and opening the launcher mid-recording will appear in the video.
 - App launching uses `.desktop` entries (`gio launch`) and `xdg-open`.
+
+## Brand
+
+The RustCast mark lives in `assets/brand/`: an open "cast" arc on a graphite
+squircle, a glass lens that refracts the arc, and a rust ember at the arc's
+leading end. `rustcast-mark-animated.svg` is the motion version (the arc draws
+itself with the ember riding its head, the lens settles in, the ember glows);
+it shows the final frame when reduced motion is on.
+
+Regenerate everything from `scripts/brand/build_logo.py` (SVGs), then
+`node scripts/brand/render.mjs` (needs Playwright) for `docs/icon.png` and the
+`assets/icons/` set used by the tray, the About dialog and the desktop entry.
