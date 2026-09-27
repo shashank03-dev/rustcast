@@ -23,7 +23,7 @@ use crate::config::Theme;
 use crate::debounce::Debouncer;
 use crate::platform::events::Event;
 use crate::styles::{
-    SECONDARY, WINDOW_RADIUS, contents_style, label, results_scrollbar_style,
+    PRIMARY, SECONDARY, WINDOW_RADIUS, contents_style, fill, label, results_scrollbar_style,
     rustcast_text_input_style, separator, sheen,
 };
 use crate::{app::pages::clipboard::clipboard_page, platform::get_installed_apps};
@@ -121,9 +121,22 @@ pub fn view(tile: &Tile, wid: window::Id) -> Element<'_, Message> {
             .padding(iced::Padding {
                 top: 20.,
                 bottom: 19.,
-                left: 20.,
+                left: 12.,
                 right: 20.,
             });
+        // The RustCast mark leads the field, where Spotlight has its glass.
+        let title_input = Row::new()
+            .push(
+                iced::widget::image(crate::app::apps::brand_glyph(&tile.config.theme))
+                    .width(20)
+                    .height(20),
+            )
+            .push(title_input)
+            .padding(iced::Padding {
+                left: 20.,
+                ..iced::Padding::ZERO
+            })
+            .align_y(Alignment::Center);
 
         let scrollbar_direction =
             if !tile.config.theme.show_scroll_bar || tile.page == Page::Settings {
@@ -203,19 +216,23 @@ pub fn view(tile: &Tile, wid: window::Id) -> Element<'_, Message> {
                 .into(),
         };
 
-        let text = if tile.query_lc.is_empty() {
+        let status = if tile.query_lc.is_empty() {
             match &tile.page {
-                Page::Main => tile.config.main_page.to_string(),
+                // The footer already names RustCast on the left.
+                Page::Main => String::new(),
                 page => page.to_string(),
             }
         } else {
             match results_count {
-                1 => "1 result found".to_string(),
-                0 => "No results found".to_string(),
-                count => {
-                    format!("{count} results found")
-                }
+                1 => "1 result".to_string(),
+                0 => "No results".to_string(),
+                count => format!("{count} results"),
             }
+        };
+        let action = match tile.page {
+            Page::Main | Page::FileSearch if results_count > 0 => Some("Open"),
+            Page::EmojiSearch if results_count > 0 => Some("Copy"),
+            _ => None,
         };
 
         let has_body = !matches!(tile.page, Page::Main | Page::FileSearch) || results_count > 0;
@@ -230,7 +247,7 @@ pub fn view(tile: &Tile, wid: window::Id) -> Element<'_, Message> {
                 space().height(1).into()
             })
             .push(body)
-            .push(footer(theme.clone(), tile.current_mode.clone(), text))
+            .push(footer(theme.clone(), &tile.current_mode, status, action))
             .spacing(0);
 
         // The top-edge highlight floats over the content so it takes no
@@ -282,37 +299,63 @@ fn page_surface<'a>(content: Element<'a, Message>, _theme: &Theme) -> Element<'a
     container(content).width(Fill).height(Fill).into()
 }
 
-/// The footer at the bottom displaying the mode and results found, and its styling
-fn footer(theme: Theme, current_mode: String, text: String) -> Element<'static, Message> {
-    let current_mode = format!(
-        "{}{} Mode",
-        current_mode.split_at(1).0.to_uppercase(),
-        current_mode.split_at(1).1
-    );
-    let caption = |s: String| {
-        Text::new(s)
-            .size(11)
-            .color(label(&theme, SECONDARY))
-            .font(crate::app::pages::ui::font(
-                &theme,
-                iced::font::Weight::Medium,
-            ))
+/// The action bar along the bottom (Raycast style): the RustCast mark and the
+/// current mode on the left; the result status, or the primary action with
+/// its key, on the right.
+fn footer(
+    theme: Theme,
+    current_mode: &str,
+    status: String,
+    action: Option<&'static str>,
+) -> Element<'static, Message> {
+    use crate::app::pages::ui;
+    let mode = if current_mode.eq_ignore_ascii_case("default") {
+        "RustCast".to_string()
+    } else {
+        let (first, rest) = current_mode.split_at(1);
+        format!("{}{} Mode", first.to_uppercase(), rest)
     };
+    let caption = |s: String, opacity: f32| {
+        Text::new(s)
+            .size(12)
+            .color(label(&theme, opacity))
+            .font(ui::font(&theme, iced::font::Weight::Medium))
+    };
+    let right: Element<'static, Message> = match action {
+        Some(action) => Row::new()
+            .push(caption(action.to_string(), PRIMARY))
+            .push(ui::kbd("↵", &theme, 1.0))
+            .spacing(8)
+            .align_y(Alignment::Center)
+            .into(),
+        None => caption(status, SECONDARY).into(),
+    };
+    let bar_theme = theme.clone();
     Column::new()
         .push(hairline(&theme))
         .push(
             container(
                 Row::new()
-                    .push(caption(text))
+                    .push(
+                        iced::widget::image(crate::app::apps::brand_glyph(&theme))
+                            .width(14)
+                            .height(14),
+                    )
+                    .push(caption(mode, SECONDARY))
                     .push(space().width(Fill))
-                    .push(caption(current_mode))
+                    .push(right)
+                    .spacing(8)
                     .align_y(Alignment::Center)
                     .width(Fill),
             )
             .padding([0, 14])
-            .center_y(29)
-            .width(Fill),
+            .center_y(35)
+            .width(Fill)
+            .style(move |_| container::Style {
+                background: Some(iced::Background::Color(fill(&bar_theme, 0.025))),
+                ..Default::default()
+            }),
         )
-        .height(30)
+        .height(36)
         .into()
 }

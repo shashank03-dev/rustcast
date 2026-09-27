@@ -161,6 +161,9 @@ fn main() -> iced::Result {
         tile::update::handle_update,
         tile::elm::view,
     )
+    // Without an explicit title iced derives one from internal type names,
+    // which then shows up in the window switcher and title bars.
+    .title("RustCast")
     .subscription(Tile::subscription)
     .theme(Tile::theme)
     .style(Tile::style)

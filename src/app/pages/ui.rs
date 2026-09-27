@@ -139,15 +139,13 @@ pub fn enter<'a>(content: impl Into<Element<'a, Message>>, t: f32) -> Element<'a
 /// `hovered` adds a lighter lift.
 pub fn card_style(theme: &Theme, focus: f32, hovered: bool, fade: f32) -> container::Style {
     let rest = surface(theme, if hovered { HOVER } else { CARD });
-    // Selected cards take an accent tint, like a focused macOS list row.
-    let bg = mix(rest, accent(0.22), focus);
+    // Selected cards lift to a brighter neutral surface with a firmer rim,
+    // the same quiet selection as the launcher's result rows.
+    let bg = mix(rest, surface(theme, SELECTED), focus);
     container::Style {
         background: Some(Background::Color(faded(bg, fade))),
         border: Border {
-            color: with_alpha(
-                mix(theme.text_color(1.0), accent(1.0), focus),
-                (0.08 + 0.62 * focus) * fade,
-            ),
+            color: theme.text_color((0.07 + 0.13 * focus) * fade),
             width: 1.0,
             radius: Radius::new(10.0),
         },

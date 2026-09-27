@@ -5,11 +5,12 @@
 use std::io::Cursor;
 
 use iced::{
-    Alignment, Color,
+    Alignment,
     Length::Fill,
+    font::Weight,
     widget::{
-        Button, Row, Text, container,
-        image::{Handle, Viewer},
+        Button, Row, Space, Text, container,
+        image::{FilterMethod, Handle},
         text::Wrapping,
     },
 };
@@ -19,7 +20,7 @@ use crate::{
     clipboard::ClipBoardContentType,
     commands::Function,
     styles::{
-        PRIMARY, SECONDARY, favourite_button_style, label, result_button_style,
+        PRIMARY, TERTIARY, favourite_button_style, label, result_button_style,
         result_row_container_style,
     },
     utils::icns_data_to_handle,
@@ -27,6 +28,25 @@ use crate::{
 
 /// The rustcast icon bytes (PNG on Linux)
 pub const ICNS_ICON: &[u8] = include_bytes!("../../docs/icon.png");
+
+/// Size of the leading icon in a result row.
+const ROW_ICON: f32 = 24.0;
+
+/// The RustCast glyph (the mark without its tile) drawn inside the launcher:
+/// a light arc for dark themes, a dark arc for light ones.
+pub fn brand_glyph(theme: &crate::config::Theme) -> Handle {
+    static DARK: std::sync::LazyLock<Handle> = std::sync::LazyLock::new(|| {
+        Handle::from_bytes(include_bytes!("../../assets/icons/rustcast-glyph-dark.png").as_slice())
+    });
+    static LIGHT: std::sync::LazyLock<Handle> = std::sync::LazyLock::new(|| {
+        Handle::from_bytes(include_bytes!("../../assets/icons/rustcast-glyph-light.png").as_slice())
+    });
+    if theme.is_light() {
+        LIGHT.clone()
+    } else {
+        DARK.clone()
+    }
+}
 
 /// macOS-style icons shown before file-search results.
 pub const FOLDER_ICON_PNG: &[u8] = include_bytes!("../../assets/icons/folder.png");
@@ -253,56 +273,58 @@ impl App {
         on_press: Option<Message>,
     ) -> iced::Element<'static, Message> {
         let focused = focussed_id == id_num;
-        // On the accent-filled selection, labels turn white like macOS lists.
-        let (title_color, subtitle_color) = if focused {
-            (Color::WHITE, Color::from_rgba(1.0, 1.0, 1.0, 0.78))
-        } else {
-            (label(&theme, PRIMARY), label(&theme, SECONDARY))
-        };
 
-        // Title + subtitle (Spotlight style: 14pt title, 11pt subtitle)
-        let text_block = iced::widget::Column::new()
-            .spacing(1)
-            .push(
-                Text::new(self.display_name)
-                    .font(theme.font())
-                    .size(14)
-                    .wrapping(Wrapping::None)
-                    .color(title_color),
-            )
-            .push(
-                Text::new(self.desc)
-                    .font(theme.font())
-                    .size(11)
-                    .wrapping(Wrapping::None)
-                    .color(subtitle_color),
-            );
-
+        // One line, Raycast style: icon, title, and the kind of result as a
+        // quiet trailing accessory ("Application", "Utility", a path…).
         let mut row = Row::new()
             .align_y(Alignment::Center)
             .width(Fill)
-            .spacing(10)
+            .spacing(12)
             .padding([0, 10])
             .height(Fill);
 
-        if theme.show_icons
-            && let Some(icon) = &self.icons
-        {
-            row = row.push(
-                container(Viewer::new(icon).height(30).width(30))
-                    .width(30)
-                    .height(30),
-            );
+        if theme.show_icons {
+            let icon: iced::Element<'static, Message> = match &self.icons {
+                Some(icon) => iced::widget::image(icon.clone())
+                    .width(ROW_ICON)
+                    .height(ROW_ICON)
+                    .filter_method(FilterMethod::Linear)
+                    .into(),
+                None => Space::new().width(ROW_ICON).height(ROW_ICON).into(),
+            };
+            row = row.push(icon);
         }
-        row = row.push(container(text_block).width(Fill).clip(true));
+
+        row = row.push(
+            container(
+                Text::new(self.display_name)
+                    .font(crate::app::pages::ui::font(&theme, Weight::Medium))
+                    .size(14)
+                    .wrapping(Wrapping::None)
+                    .color(label(&theme, PRIMARY)),
+            )
+            .width(Fill)
+            .clip(true),
+        );
+        row = row.push(
+            container(
+                Text::new(self.desc)
+                    .font(theme.font())
+                    .size(12)
+                    .wrapping(Wrapping::None)
+                    .color(label(&theme, TERTIARY)),
+            )
+            .max_width(220)
+            .clip(true),
+        );
 
         let name = self.search_name.clone();
         let theme_clone = theme.clone();
         let is_favourite = self.ranking == -1;
         row = row.push(
-            Button::new(Text::new("♥").size(13))
+            Button::new(Text::new("♥").size(12))
                 .on_press_with(move || Message::ToggleFavouriteApp(name.clone()))
-                .padding([4, 6])
+                .padding([4, 2])
                 .style(move |_, status| {
                     favourite_button_style(&theme_clone, status, is_favourite, focused)
                 }),
@@ -332,7 +354,7 @@ impl App {
                 .height(Fill),
         )
         .id(format!("result-{}", id_num))
-        .padding([2, 6])
+        .padding([1, 8])
         .width(Fill)
         .height(crate::app::RESULT_ROW_HEIGHT)
         .into()

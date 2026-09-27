@@ -321,7 +321,7 @@ fn update_inner(tile: &mut Tile, message: Message) -> Task<Message> {
                 }
 
                 let change_by = match tile.page {
-                    Page::EmojiSearch => 6,
+                    Page::EmojiSearch => crate::app::pages::emoji::EMOJI_COLUMNS as u32,
                     _ => 1,
                 };
 
@@ -354,7 +354,7 @@ fn update_inner(tile: &mut Tile, message: Message) -> Task<Message> {
                 };
 
                 let quantity = match tile.page {
-                    Page::Main | Page::FileSearch | Page::Recorder => 66.5,
+                    Page::Main | Page::FileSearch | Page::Recorder => crate::app::RESULT_ROW_HEIGHT,
                     // Card height + spacing on the clipboard list.
                     Page::ClipboardHistory => crate::app::pages::clipboard::CARD_PITCH,
                     Page::EmojiSearch => 5.,
