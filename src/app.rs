@@ -27,6 +27,34 @@ pub const DEFAULT_WINDOW_HEIGHT: f32 = 106.;
 /// Height of one search result row, selection inset included.
 pub const RESULT_ROW_HEIGHT: f32 = 44.;
 
+/// Height of a section label ("Emoji", "Files") in the root search.
+pub const SECTION_HEADER_HEIGHT: f32 = 28.;
+
+/// Rows of the root search shown before the list scrolls.
+pub const MAX_VISIBLE_ROWS: usize = 5;
+
+/// Launcher height for the root search: the first rows with their section
+/// labels (see [`apps::row_layout`]).
+pub fn main_results_window_height(results: &[apps::App]) -> f32 {
+    let list: f32 = apps::row_layout(results)
+        .iter()
+        .take(MAX_VISIBLE_ROWS)
+        .map(|(header, _)| {
+            RESULT_ROW_HEIGHT
+                + if header.is_some() {
+                    SECTION_HEADER_HEIGHT
+                } else {
+                    0.
+                }
+        })
+        .sum();
+    if list == 0. {
+        DEFAULT_WINDOW_HEIGHT
+    } else {
+        DEFAULT_WINDOW_HEIGHT + list + 2. * RESULTS_LIST_PADDING
+    }
+}
+
 /// Space above and below the results list.
 pub const RESULTS_LIST_PADDING: f32 = 6.;
 
@@ -310,6 +338,9 @@ pub enum Message {
     UpdateApps,
     SetSender(ExtSender),
     SwitchToPage(Page),
+    /// Open a page with the search field already set to the given query
+    /// (the "Show all emoji" / "Search files" rows of the root search).
+    SearchInPage(Page, String),
     EditClipboardHistory(Editable<ClipBoardContentType>),
     ClearClipboardHistory,
     ChangeFocus(ArrowKey, u32),

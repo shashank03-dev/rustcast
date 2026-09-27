@@ -163,14 +163,21 @@ pub fn view(tile: &Tile, wid: window::Id) -> Element<'_, Message> {
             ),
             Page::Settings => settings_page(tile.config.clone(), tile.settings_tab),
             Page::FileSearch | Page::Main => container(Column::from_iter(
-                tile.results.iter().enumerate().map(|(i, app)| {
-                    app.clone().render(
-                        tile.config.theme.clone(),
-                        i as u32,
-                        tile.focus_id,
-                        Some(Message::OpenResult(i as u32)),
-                    )
-                }),
+                crate::app::apps::row_layout(&tile.results)
+                    .into_iter()
+                    .enumerate()
+                    .flat_map(|(i, (header, app))| {
+                        // Section labels only group the root search.
+                        let header = header
+                            .filter(|_| tile.page == Page::Main)
+                            .map(|group| section_header(group.title(), &tile.config.theme));
+                        header.into_iter().chain(std::iter::once(app.clone().render(
+                            tile.config.theme.clone(),
+                            i as u32,
+                            tile.focus_id,
+                            Some(Message::OpenResult(i as u32)),
+                        )))
+                    }),
             ))
             .padding([crate::app::RESULTS_LIST_PADDING, 0.])
             .into(),
@@ -283,6 +290,30 @@ pub fn view(tile: &Tile, wid: window::Id) -> Element<'_, Message> {
     } else {
         space().into()
     }
+}
+
+/// A group label in the root search ("Apps & Commands", "Emoji", "Files"):
+/// small, semibold, tertiary, aligned with the row titles' inset.
+fn section_header<'a>(title: &'static str, theme: &Theme) -> Element<'a, Message> {
+    container(
+        Text::new(title)
+            .size(11)
+            .font(crate::app::pages::ui::font(
+                theme,
+                iced::font::Weight::Semibold,
+            ))
+            .color(label(theme, crate::styles::TERTIARY)),
+    )
+    .padding(iced::Padding {
+        top: 10.,
+        bottom: 4.,
+        left: 18.,
+        right: 18.,
+    })
+    .height(crate::app::SECTION_HEADER_HEIGHT)
+    .width(Fill)
+    .align_y(Alignment::End)
+    .into()
 }
 
 /// A 1px separatorColor line across the window.

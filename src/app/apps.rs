@@ -20,7 +20,7 @@ use crate::{
     clipboard::ClipBoardContentType,
     commands::Function,
     styles::{
-        PRIMARY, TERTIARY, favourite_button_style, label, result_button_style,
+        PRIMARY, SECONDARY, TERTIARY, favourite_button_style, label, result_button_style,
         result_row_container_style,
     },
     utils::icns_data_to_handle,
@@ -69,6 +69,62 @@ pub fn file_result_icon(is_dir: bool) -> Option<Handle> {
     } else {
         (*FILE_ICON).clone()
     }
+}
+
+/// The groups of the root search, in display order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ResultGroup {
+    Commands,
+    Emoji,
+    Files,
+}
+
+impl ResultGroup {
+    pub fn title(self) -> &'static str {
+        match self {
+            ResultGroup::Commands => "Apps & Commands",
+            ResultGroup::Emoji => "Emoji",
+            ResultGroup::Files => "Files",
+        }
+    }
+}
+
+/// Emoji listed in the root search before "Show all emoji".
+pub const MAIN_SEARCH_EMOJI: usize = 3;
+/// Files listed in the root search before "Search files".
+pub const MAIN_SEARCH_FILES: usize = 4;
+
+/// Each result with the section label drawn above it, if any. Labels mark
+/// where a group starts, and only appear once the list mixes in emoji or
+/// files — a plain app search stays a bare list.
+pub fn row_layout(results: &[App]) -> Vec<(Option<ResultGroup>, &App)> {
+    let labelled = results.iter().any(|a| a.group() != ResultGroup::Commands);
+    let mut prev = None;
+    results
+        .iter()
+        .map(|app| {
+            let group = app.group();
+            let header = (labelled && prev != Some(group)).then_some(group);
+            prev = Some(group);
+            (header, app)
+        })
+        .collect()
+}
+
+/// Scroll offset of row `index` in the root search, its label included.
+pub fn row_offset(results: &[App], index: usize) -> f32 {
+    row_layout(results)
+        .iter()
+        .take(index)
+        .map(|(header, _)| {
+            crate::app::RESULT_ROW_HEIGHT
+                + if header.is_some() {
+                    crate::app::SECTION_HEADER_HEIGHT
+                } else {
+                    0.
+                }
+        })
+        .sum()
 }
 
 /// This tells each "App" what to do when it is clicked, whether it is a function, a message, or a display
@@ -121,6 +177,46 @@ impl App {
                 AppCommand::Function(Function::CopyToClipboard(ClipBoardContentType::Text(t)))
                     if *t == self.display_name
             )
+    }
+
+    /// True for file-search results (a file or folder).
+    pub fn is_file(&self) -> bool {
+        self.icons.is_some() && (self.icons == *FOLDER_ICON || self.icons == *FILE_ICON)
+    }
+
+    /// The page a "Show all" row opens, if this is one.
+    pub fn show_all_page(&self) -> Option<&Page> {
+        match &self.open_command {
+            AppCommand::Message(Message::SearchInPage(page, _)) => Some(page),
+            _ => None,
+        }
+    }
+
+    /// The root-search group this result belongs to.
+    pub fn group(&self) -> ResultGroup {
+        match self.show_all_page() {
+            Some(Page::EmojiSearch) => ResultGroup::Emoji,
+            Some(Page::FileSearch) => ResultGroup::Files,
+            _ if self.is_emoji() => ResultGroup::Emoji,
+            _ if self.is_file() => ResultGroup::Files,
+            _ => ResultGroup::Commands,
+        }
+    }
+
+    /// The closing row of a capped group: opens the full page for `query`.
+    pub fn show_all(page: Page, query: &str) -> App {
+        let name = match page {
+            Page::EmojiSearch => "Show all emoji".to_string(),
+            _ => format!("Search files for \u{201c}{query}\u{201d}"),
+        };
+        App {
+            ranking: 0,
+            open_command: AppCommand::Message(Message::SearchInPage(page, query.to_string())),
+            desc: String::new(),
+            icons: None,
+            display_name: name,
+            search_name: String::new(),
+        }
     }
 
     pub fn new(name: String, icon: Option<Handle>, desc: String, command: AppCommand) -> Self {
@@ -301,12 +397,20 @@ impl App {
             if let Some(first) = name.get_mut(0..1) {
                 first.make_ascii_uppercase();
             }
-            (name, "Emoji".to_string())
+            // The "Emoji" section label already says what it is.
+            (name, String::new())
         } else {
             (self.display_name.clone(), self.desc.clone())
         };
 
-        if is_emoji {
+        let is_show_all = self.show_all_page().is_some();
+        if is_show_all {
+            row = row.push(
+                container(Text::new("→").size(14).color(label(&theme, TERTIARY)))
+                    .center_x(ROW_ICON)
+                    .center_y(ROW_ICON),
+            );
+        } else if is_emoji {
             row = row.push(
                 container(
                     Text::new(self.display_name.clone())
@@ -341,7 +445,7 @@ impl App {
                     .font(crate::app::pages::ui::font(&theme, Weight::Medium))
                     .size(14)
                     .wrapping(Wrapping::None)
-                    .color(label(&theme, PRIMARY)),
+                    .color(label(&theme, if is_show_all { SECONDARY } else { PRIMARY })),
             )
             .width(Fill)
             .clip(true),
@@ -362,7 +466,7 @@ impl App {
         let theme_clone = theme.clone();
         let is_favourite = self.ranking == -1;
         // Only apps and commands can be favourited.
-        if !is_emoji {
+        if self.group() == ResultGroup::Commands {
             row = row.push(
                 Button::new(Text::new("♥").size(12))
                     .on_press_with(move || Message::ToggleFavouriteApp(name.clone()))
@@ -401,5 +505,53 @@ impl App {
         .width(Fill)
         .height(crate::app::RESULT_ROW_HEIGHT)
         .into()
+    }
+}
+
+#[cfg(test)]
+mod layout_tests {
+    use super::*;
+
+    fn command(name: &str) -> App {
+        App::new(
+            name.to_string(),
+            None,
+            "Utility".to_string(),
+            AppCommand::Display,
+        )
+    }
+
+    #[test]
+    fn plain_command_search_has_no_section_labels() {
+        let results = vec![command("a"), command("b")];
+        assert!(row_layout(&results).iter().all(|(h, _)| h.is_none()));
+    }
+
+    #[test]
+    fn mixed_search_labels_the_start_of_each_group() {
+        let emoji = App::emoji_apps().into_iter().next().unwrap();
+        assert!(emoji.is_emoji());
+        let results = vec![
+            command("a"),
+            command("b"),
+            emoji,
+            App::show_all(Page::EmojiSearch, "sm"),
+            App::show_all(Page::FileSearch, "sm"),
+        ];
+        let headers: Vec<_> = row_layout(&results).into_iter().map(|(h, _)| h).collect();
+        assert_eq!(
+            headers,
+            vec![
+                Some(ResultGroup::Commands),
+                None,
+                Some(ResultGroup::Emoji),
+                None,
+                Some(ResultGroup::Files),
+            ]
+        );
+        let row = crate::app::RESULT_ROW_HEIGHT;
+        let label = crate::app::SECTION_HEADER_HEIGHT;
+        assert_eq!(row_offset(&results, 2), label + 2. * row);
+        assert_eq!(row_offset(&results, 4), 2. * label + 4. * row);
     }
 }
