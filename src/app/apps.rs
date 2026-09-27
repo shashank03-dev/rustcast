@@ -112,6 +112,17 @@ impl App {
         self.icons.is_some() && self.icons == *FOLDER_ICON
     }
 
+    /// True for emoji results (see [`App::emoji_apps`]): no icon, and the
+    /// command copies the displayed emoji itself.
+    pub fn is_emoji(&self) -> bool {
+        self.icons.is_none()
+            && matches!(
+                &self.open_command,
+                AppCommand::Function(Function::CopyToClipboard(ClipBoardContentType::Text(t)))
+                    if *t == self.display_name
+            )
+    }
+
     pub fn new(name: String, icon: Option<Handle>, desc: String, command: AppCommand) -> Self {
         Self {
             ranking: 0,
@@ -283,7 +294,36 @@ impl App {
             .padding([0, 10])
             .height(Fill);
 
-        if theme.show_icons {
+        // Emoji rows: the emoji in the icon slot, its name as the title.
+        let is_emoji = self.is_emoji();
+        let (title, accessory) = if is_emoji {
+            let mut name = self.desc.clone();
+            if let Some(first) = name.get_mut(0..1) {
+                first.make_ascii_uppercase();
+            }
+            (name, "Emoji".to_string())
+        } else {
+            (self.display_name.clone(), self.desc.clone())
+        };
+
+        if is_emoji {
+            row = row.push(
+                container(
+                    Text::new(self.display_name.clone())
+                        .font(iced::Font {
+                            family: crate::fonts::emoji_family(),
+                            ..iced::Font::DEFAULT
+                        })
+                        .size(if crate::fonts::has_apple_emoji() {
+                            24
+                        } else {
+                            19
+                        }),
+                )
+                .center_x(ROW_ICON)
+                .center_y(ROW_ICON),
+            );
+        } else if theme.show_icons {
             let icon: iced::Element<'static, Message> = match &self.icons {
                 Some(icon) => iced::widget::image(icon.clone())
                     .width(ROW_ICON)
@@ -297,7 +337,7 @@ impl App {
 
         row = row.push(
             container(
-                Text::new(self.display_name)
+                Text::new(title)
                     .font(crate::app::pages::ui::font(&theme, Weight::Medium))
                     .size(14)
                     .wrapping(Wrapping::None)
@@ -308,7 +348,7 @@ impl App {
         );
         row = row.push(
             container(
-                Text::new(self.desc)
+                Text::new(accessory)
                     .font(theme.font())
                     .size(12)
                     .wrapping(Wrapping::None)
@@ -321,14 +361,17 @@ impl App {
         let name = self.search_name.clone();
         let theme_clone = theme.clone();
         let is_favourite = self.ranking == -1;
-        row = row.push(
-            Button::new(Text::new("♥").size(12))
-                .on_press_with(move || Message::ToggleFavouriteApp(name.clone()))
-                .padding([4, 2])
-                .style(move |_, status| {
-                    favourite_button_style(&theme_clone, status, is_favourite, focused)
-                }),
-        );
+        // Only apps and commands can be favourited.
+        if !is_emoji {
+            row = row.push(
+                Button::new(Text::new("♥").size(12))
+                    .on_press_with(move || Message::ToggleFavouriteApp(name.clone()))
+                    .padding([4, 2])
+                    .style(move |_, status| {
+                        favourite_button_style(&theme_clone, status, is_favourite, focused)
+                    }),
+            );
+        }
 
         let msg = on_press.or(match self.open_command.clone() {
             AppCommand::Function(func) => Some(Message::RunFunction(func)),

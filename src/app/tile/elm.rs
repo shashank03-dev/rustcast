@@ -229,7 +229,12 @@ pub fn view(tile: &Tile, wid: window::Id) -> Element<'_, Message> {
                 count => format!("{count} results"),
             }
         };
+        let focused_is_emoji = tile
+            .results
+            .get(tile.focus_id as usize)
+            .is_some_and(|app| app.is_emoji());
         let action = match tile.page {
+            Page::Main if focused_is_emoji => Some("Copy"),
             Page::Main | Page::FileSearch if results_count > 0 => Some("Open"),
             Page::EmojiSearch if results_count > 0 => Some("Copy"),
             _ => None,
