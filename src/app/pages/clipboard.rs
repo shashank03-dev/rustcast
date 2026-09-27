@@ -384,7 +384,7 @@ fn empty_state(theme: &Theme, message: String, hint: &str, fade: f32) -> Element
     let t2 = theme.clone();
     container(
         column![
-            ui::glyph("⧉", ui::accent(1.0), 64.0, fade),
+            ui::glyph("⧉", theme.text_color(0.7), 64.0, fade),
             text(message)
                 .size(17)
                 .font(ui::font(theme, Weight::Semibold))

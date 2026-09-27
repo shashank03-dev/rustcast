@@ -132,8 +132,17 @@ fn tab_button(
         Text::new(label)
             .align_x(Alignment::Center)
             .width(Length::Fill)
-            .font(theme.font()),
+            .size(13)
+            .font(crate::app::pages::ui::font(
+                &theme,
+                if is_active {
+                    iced::font::Weight::Semibold
+                } else {
+                    iced::font::Weight::Medium
+                },
+            )),
     )
+    .padding([5, 8])
     .style(move |_, status| settings_tab_style(&theme_clone, is_active, status))
     .width(Length::Fill)
     .on_press(Message::SwitchSettingsTab(tab))
@@ -175,13 +184,13 @@ fn general_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'stat
     let hotkey = settings_row_with_reset(
         settings_item_column([
             settings_hint_text(theme.clone(), "Toggle hotkey"),
-            text_input("Toggle Hotkey", &config.toggle_hotkey)
+            settings_input("Toggle Hotkey", &config.toggle_hotkey)
                 .on_input(|input| Message::SetConfig(SetConfigFields::ToggleHotkey(input.clone())))
                 .on_submit(Message::WriteConfig(false))
                 .width(Length::Fill)
                 .style(move |_, status| settings_text_input_item_style(&theme_clone, status))
                 .into(),
-            notice_item(theme.clone(), "Use \"+\" as a seperator"),
+            notice_item(theme.clone(), "Use \"+\" as a separator"),
         ]),
         ResetField::ToggleHotkey,
         theme.clone(),
@@ -191,7 +200,7 @@ fn general_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'stat
     let cb_hotkey = settings_row_with_reset(
         settings_item_column([
             settings_hint_text(theme.clone(), "Clipboard hotkey"),
-            text_input("Clipboard Hotkey", &config.clipboard_hotkey)
+            settings_input("Clipboard Hotkey", &config.clipboard_hotkey)
                 .on_input(|input| {
                     Message::SetConfig(SetConfigFields::ClipboardHotkey(input.clone()))
                 })
@@ -199,7 +208,7 @@ fn general_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'stat
                 .width(Length::Fill)
                 .style(move |_, status| settings_text_input_item_style(&theme_clone, status))
                 .into(),
-            notice_item(theme.clone(), "Use \"+\" as a seperator"),
+            notice_item(theme.clone(), "Use \"+\" as a separator"),
         ]),
         ResetField::ClipboardHotkey,
         theme.clone(),
@@ -209,7 +218,7 @@ fn general_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'stat
     let placeholder_setting = settings_row_with_reset(
         settings_item_column([
             settings_hint_text(theme.clone(), "Set the rustcast placeholder"),
-            text_input("Set Placeholder", &config.placeholder)
+            settings_input("Set Placeholder", &config.placeholder)
                 .on_input(|input| Message::SetConfig(SetConfigFields::PlaceHolder(input.clone())))
                 .on_submit(Message::WriteConfig(false))
                 .width(Length::Fill)
@@ -225,7 +234,7 @@ fn general_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'stat
     let search = settings_row_with_reset(
         settings_item_column([
             settings_hint_text(theme.clone(), "Set the search URL"),
-            text_input("Set Search URL", &config.search_url)
+            settings_input("Set Search URL", &config.search_url)
                 .on_input(|input| Message::SetConfig(SetConfigFields::SearchUrl(input.clone())))
                 .on_submit(Message::WriteConfig(false))
                 .width(Length::Fill)
@@ -242,7 +251,7 @@ fn general_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'stat
     let debounce = settings_row_with_reset(
         settings_item_column([
             settings_hint_text(theme.clone(), "Set the debounce time"),
-            text_input("Set Debounce time (ms)", &config.debounce_delay.to_string())
+            settings_input("Set Debounce time (ms)", &config.debounce_delay.to_string())
                 .on_input(move |input: String| {
                     let delay = input.parse::<u64>().unwrap_or(current_delay);
                     Message::SetConfig(SetConfigFields::DebounceDelay(delay))
@@ -568,7 +577,7 @@ fn appearance_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'s
     let font_family = settings_row_with_reset(
         settings_item_column([
             settings_hint_text(theme.clone(), "Set Font family"),
-            text_input(
+            settings_input(
                 "Font family",
                 &config.theme.font.clone().unwrap_or("".to_string()),
             )
@@ -591,7 +600,7 @@ fn appearance_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'s
     let event_duration = settings_row_with_reset(
         settings_item_column([
             settings_hint_text(theme.clone(), "Set Event duration"),
-            text_input("Event duration", &config.event_duration.to_string())
+            settings_input("Event duration", &config.event_duration.to_string())
                 .on_input(move |input: String| {
                     Message::SetConfig(SetConfigFields::SetEventDuration(input))
                 })
@@ -781,7 +790,7 @@ fn recorder_text_setting(
     settings_row_with_reset(
         settings_item_column([
             settings_hint_text(theme.clone(), title),
-            text_input(title, &value)
+            settings_input(title, &value)
                 .on_input(on_input)
                 .on_submit(Message::WriteConfig(false))
                 .width(Length::Fill)
@@ -856,7 +865,7 @@ fn recorder_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'sta
         settings_item_column([
             settings_hint_text(theme.clone(), "Aspect-locked output size"),
             Row::from_iter([
-                text_input("Width", &rec.output_width.to_string())
+                settings_input("Width", &rec.output_width.to_string())
                     .on_input(move |input| {
                         Message::SetConfig(SetConfigFields::SetRecorderFields(
                             SetConfigRecorderFields::OutputWidth(
@@ -872,7 +881,7 @@ fn recorder_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'sta
                     .font(theme.font())
                     .color(theme.text_color(0.7))
                     .into(),
-                text_input("Height", &rec.output_height.to_string())
+                settings_input("Height", &rec.output_height.to_string())
                     .on_input(move |input| {
                         Message::SetConfig(SetConfigFields::SetRecorderFields(
                             SetConfigRecorderFields::OutputHeight(
@@ -1042,13 +1051,21 @@ fn copy_config_button(config: Box<Config>) -> Element<'static, Message> {
     .into()
 }
 
+/// A settings text field: macOS control size (13pt text, 6/10 padding).
+fn settings_input(placeholder: &str, value: &str) -> TextInput<'static, Message> {
+    text_input(placeholder, value).size(13).padding([6, 10])
+}
+
 fn settings_hint_text(theme: Theme, text: impl ToString) -> Element<'static, Message> {
     let text = text.to_string();
 
     Text::new(text)
-        .font(theme.font())
-        .size(13)
-        .color(styles::label(&theme, styles::PRIMARY))
+        .font(crate::app::pages::ui::font(
+            &theme,
+            iced::font::Weight::Medium,
+        ))
+        .size(12)
+        .color(styles::label(&theme, styles::SECONDARY))
         .into()
 }
 
@@ -1073,10 +1090,10 @@ fn settings_item_row(
 fn notice_item(theme: Theme, notice: impl ToString) -> Element<'static, Message> {
     Text::new(notice.to_string())
         .font(theme.font())
-        .color(styles::label(&theme, styles::SECONDARY))
+        .color(styles::label(&theme, styles::TERTIARY))
         .size(11)
         .width(Length::Fill)
-        .align_x(Alignment::End)
+        .align_x(Alignment::Start)
         .into()
 }
 
@@ -1186,9 +1203,8 @@ fn search_dirs_item(theme: &Theme, search_dirs: Vec<String>) -> Element<'static,
 }
 
 fn text_input_cell(text: String, theme: &Theme, placeholder: &str) -> TextInput<'static, Message> {
-    text_input(placeholder, &text)
+    settings_input(placeholder, &text)
         .font(theme.font())
-        .padding(5)
         .on_submit(Message::WriteConfig(false))
 }
 

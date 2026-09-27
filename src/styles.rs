@@ -88,11 +88,12 @@ pub fn favourite_button_style(
     on_selection: bool,
 ) -> button::Style {
     let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
-    let text_color = match (is_favourite, on_selection) {
-        (true, true) => Color::WHITE,
-        (true, false) => Color::from_rgb(1.0, 0.216, 0.373),
-        (false, true) => Color::from_rgba(1.0, 1.0, 1.0, if hovered { 0.9 } else { 0.45 }),
-        (false, false) => label(theme, if hovered { SECONDARY } else { 0.0 }),
+    let text_color = if is_favourite {
+        Color::from_rgb(1.0, 0.216, 0.373)
+    } else if on_selection || hovered {
+        label(theme, if hovered { SECONDARY } else { TERTIARY })
+    } else {
+        Color::TRANSPARENT
     };
     button::Style {
         text_color,
@@ -159,20 +160,16 @@ pub fn settings_radio_button_style(theme: &ConfigTheme, status: radio::Status) -
     }
 }
 
-/// A result row. Selection is the macOS list highlight: an accent-filled
-/// rounded rectangle inset from the window edge, with white text on it.
+/// A result row. Selection is a quiet neutral highlight (Raycast/Spotlight
+/// list style): a soft fill inset from the window edge, labels unchanged.
 pub fn result_row_container_style(tile: &ConfigTheme, focused: bool) -> container::Style {
     container::Style {
-        background: focused.then(|| Background::Color(accent(tile))),
+        background: focused.then(|| Background::Color(fill(tile, SELECTION_FILL))),
         border: Border {
             radius: Radius::new(ROW_RADIUS),
             ..Border::default()
         },
-        text_color: Some(if focused {
-            Color::WHITE
-        } else {
-            label(tile, PRIMARY)
-        }),
+        text_color: Some(label(tile, PRIMARY)),
         ..Default::default()
     }
 }
@@ -182,11 +179,15 @@ pub fn result_row_container_style(tile: &ConfigTheme, focused: bool) -> containe
 /// Takes a focused boolean, to know if this specific button is focused or not
 pub fn emoji_button_container_style(tile_theme: &ConfigTheme, focused: bool) -> container::Style {
     container::Style {
-        background: focused.then(|| Background::Color(with_alpha(accent(tile_theme), 0.85))),
+        background: focused.then(|| Background::Color(fill(tile_theme, SELECTION_FILL))),
         text_color: Some(label(tile_theme, PRIMARY)),
         border: Border {
-            color: Color::TRANSPARENT,
-            width: 0.0,
+            color: if focused {
+                label(tile_theme, 0.22)
+            } else {
+                Color::TRANSPARENT
+            },
+            width: 1.0,
             radius: Radius::new(12.0),
         },
         ..Default::default()
@@ -196,8 +197,8 @@ pub fn emoji_button_container_style(tile_theme: &ConfigTheme, focused: bool) -> 
 /// Emoji buttons styling
 pub fn emoji_button_style(tile_theme: &ConfigTheme, status: button::Status) -> button::Style {
     let level = match status {
-        button::Status::Hovered | button::Status::Pressed => SECONDARY_FILL,
-        _ => QUATERNARY_FILL,
+        button::Status::Hovered | button::Status::Pressed => TERTIARY_FILL,
+        _ => 0.0,
     };
     button::Style {
         background: Some(Background::Color(fill(tile_theme, level))),
@@ -221,12 +222,12 @@ pub fn settings_text_input_item_style(
         background: Background::Color(fill(theme, QUATERNARY_FILL)),
         border: Border {
             color: if focused {
-                with_alpha(accent(theme), 0.75)
+                with_alpha(accent(theme), 0.70)
             } else {
                 separator(theme)
             },
-            width: if focused { 2.0 } else { 1.0 },
-            radius: Radius::new(7.),
+            width: if focused { 1.5 } else { 1.0 },
+            radius: Radius::new(8.),
         },
         icon: label(theme, SECONDARY),
         placeholder: label(theme, TERTIARY),
@@ -314,15 +315,15 @@ pub fn settings_tab_style(
         let raised = if theme.is_light() {
             Color::WHITE
         } else {
-            fill(theme, 0.24)
+            fill(theme, 0.13)
         };
         (
             Some(Background::Color(raised)),
             label(theme, PRIMARY),
             Shadow {
-                color: Color::from_rgba(0.0, 0.0, 0.0, 0.18),
+                color: Color::from_rgba(0.0, 0.0, 0.0, 0.22),
                 offset: iced::Vector::new(0.0, 1.0),
-                blur_radius: 2.0,
+                blur_radius: 3.0,
             },
         )
     } else if hovered {
@@ -419,7 +420,10 @@ pub fn settings_slider_style(theme: &ConfigTheme, _status: slider::Status) -> sl
 /// Corner radius of the launcher window.
 pub const WINDOW_RADIUS: f32 = 16.0;
 /// Corner radius of a selected row.
-pub const ROW_RADIUS: f32 = 10.0;
+pub const ROW_RADIUS: f32 = 8.0;
+
+/// Fill of the selected list row (and emoji cell).
+pub const SELECTION_FILL: f32 = 0.10;
 
 /// labelColor / secondaryLabelColor / tertiaryLabelColor opacities.
 pub const PRIMARY: f32 = 0.88;

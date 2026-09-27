@@ -1,7 +1,7 @@
 # Default Config
 
 toggle_hotkey = "ALT+SPACE"
-placeholder = "Time to be productive!"
+placeholder = "Search apps, files and commands…"
 search_url = "https://google.com/search?q=%s"
 show_trayicon = true
 shells = []

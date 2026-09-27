@@ -53,7 +53,7 @@ impl Default for Config {
             theme: Theme::default(),
             start_at_login: false,
             event_duration: 60,
-            placeholder: String::from("Time to be productive!"),
+            placeholder: String::from("Search apps, files and commands…"),
             search_url: "https://duckduckgo.com/search?q=%s".to_string(),
             cbhist: true,
             cbhist_paste_on_select: false,

@@ -19,13 +19,13 @@ pub mod tray;
 
 use iced::window::{self, Id, Settings};
 /// The default window width
-pub const WINDOW_WIDTH: f32 = 500.;
+pub const WINDOW_WIDTH: f32 = 640.;
 
 /// The default window height
-pub const DEFAULT_WINDOW_HEIGHT: f32 = 100.;
+pub const DEFAULT_WINDOW_HEIGHT: f32 = 106.;
 
 /// Height of one search result row, selection inset included.
-pub const RESULT_ROW_HEIGHT: f32 = 52.;
+pub const RESULT_ROW_HEIGHT: f32 = 44.;
 
 /// Space above and below the results list.
 pub const RESULTS_LIST_PADDING: f32 = 6.;
@@ -413,6 +413,18 @@ pub fn default_settings() -> Settings {
         size: iced::Size {
             width: WINDOW_WIDTH,
             height: DEFAULT_WINDOW_HEIGHT,
+        },
+        // The RustCast mark as the window icon, and an application id that
+        // matches rustcast.desktop so docks, the window switcher and GNOME's
+        // top bar show "RustCast" with its icon rather than a generic entry.
+        icon: window::icon::from_file_data(
+            include_bytes!("../assets/icons/rustcast-256.png"),
+            None,
+        )
+        .ok(),
+        platform_specific: window::settings::PlatformSpecific {
+            application_id: "rustcast".to_string(),
+            ..Default::default()
         },
         ..Default::default()
     }

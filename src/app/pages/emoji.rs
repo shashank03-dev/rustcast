@@ -8,6 +8,12 @@ use crate::{
     styles::{PRIMARY, label, rim, window_fill, with_alpha},
 };
 
+/// Emoji per grid row (arrow-key navigation steps by this on Up/Down).
+pub const EMOJI_COLUMNS: usize = 8;
+
+/// Side of one emoji cell.
+const CELL: f32 = 62.0;
+
 /// The emoji pages element to render
 ///
 /// Takes:
@@ -20,7 +26,7 @@ pub fn emoji_page(
     focussed_id: u32,
 ) -> Element<'static, Message> {
     let emoji_vec = emojis
-        .chunks(6)
+        .chunks(EMOJI_COLUMNS)
         .map(|x| x.to_vec())
         .collect::<Vec<Vec<App>>>();
 
@@ -29,7 +35,7 @@ pub fn emoji_page(
     let mut id_num = 0;
 
     for emoji_row in emoji_vec {
-        let mut emoji_row_element = Row::new().spacing(10);
+        let mut emoji_row_element = Row::new().spacing(8);
         for emoji in emoji_row {
             let theme_clone = tile_theme.clone();
 
@@ -37,7 +43,7 @@ pub fn emoji_page(
             let element_column = Column::new().push(
                 Text::new(emoji.display_name.clone())
                     .font(tile_theme.font())
-                    .size(30)
+                    .size(28)
                     .width(Length::Fill)
                     .height(Fill)
                     .align_y(Alignment::Center)
@@ -50,15 +56,15 @@ pub fn emoji_page(
             emoji_row_element = emoji_row_element.push(tooltip(
                 container(
                     Button::new(element_column)
-                        .width(70)
-                        .height(70)
+                        .width(CELL)
+                        .height(CELL)
                         .on_press(Message::RunFunction(Function::CopyToClipboard(
                             ClipBoardContentType::Text(emoji.display_name),
                         )))
                         .style(move |_, status| emoji_button_style(&value, status)),
                 )
-                .width(70)
-                .height(70)
+                .width(CELL)
+                .height(CELL)
                 .id(format!("result-{}", id_num))
                 .style(move |_| emoji_button_container_style(&theme_clone, focussed_id == id_num)),
                 container(
@@ -89,11 +95,11 @@ pub fn emoji_page(
             id_num += 1;
         }
 
-        column.push(container(emoji_row_element).center_y(70).into());
+        column.push(container(emoji_row_element).center_y(CELL).into());
     }
 
-    container(Column::from_vec(column).spacing(10))
-        .padding(10)
+    container(Column::from_vec(column).spacing(8))
+        .padding([10, 0])
         .center_x(WINDOW_WIDTH)
         .into()
 }

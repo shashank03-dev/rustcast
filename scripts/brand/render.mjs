@@ -7,6 +7,7 @@
 //   assets/icons/rustcast.png    512px (tray, About dialog, window icon)
 //   assets/icons/rustcast-N.png  16..256px (installed desktop icons);
 //                                16-32px use the heavier small-size mark.
+//   assets/icons/rustcast-glyph-{dark,light}.png  in-app glyph, 64px
 // With --frames, also writes PNG frames of the motion mark to
 // $FRAMES_DIR (default: ./target/brand-frames) for building previews.
 //
@@ -40,6 +41,11 @@ await shoot(read("rustcast-mark.svg"), 512, join(root, "assets", "icons", "rustc
 for (const n of [16, 24, 32, 48, 64, 128, 256]) {
   const svg = read(n <= 32 ? "rustcast-mark-small.svg" : "rustcast-mark.svg");
   await shoot(svg, n, join(root, "assets", "icons", `rustcast-${n}.png`));
+}
+
+// The tile-less glyph drawn inside the launcher (dark and light UI).
+for (const v of ["dark", "light"]) {
+  await shoot(read(`rustcast-glyph-${v}.svg`), 64, join(root, "assets", "icons", `rustcast-glyph-${v}.png`));
 }
 
 if (process.argv.includes("--frames")) {

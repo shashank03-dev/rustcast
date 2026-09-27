@@ -4,6 +4,7 @@ Writes, into assets/brand/:
   rustcast-mark.svg           static mark (the final frame)
   rustcast-mark-animated.svg  the motion mark (CSS keyframes, loops idly)
   rustcast-mark-small.svg     heavier strokes for 16-32px renders
+  rustcast-glyph-{dark,light}.svg  the mark without its tile, for in-app UI
 
 The mark: a graphite squircle tile, an open "cast" arc that sweeps clockwise
 from ten o'clock to five, a glass lens (orb) that refracts the arc where it
@@ -202,11 +203,28 @@ def svg(animated: bool, stroke: float, small: bool = False) -> str:
 """
 
 
+def glyph(ink: str) -> str:
+    """The mark without its tile, for use inside the UI (search field,
+    footer). `ink` is the arc colour: white on dark UI, near-black on light."""
+    x1, y1 = polar(A1)
+    arc = arc_path()
+    stroke = 74
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="190 80 780 780" width="780" height="780">
+  <title>RustCast</title>
+  <path d="{arc}" fill="none" stroke="{ink}" stroke-width="{stroke}" stroke-linecap="round"/>
+  <circle cx="{OX}" cy="{OY}" r="{OR - 12}" fill="{ink}" fill-opacity=".14" stroke="{ink}" stroke-opacity=".45" stroke-width="24"/>
+  <circle cx="{x1:.1f}" cy="{y1:.1f}" r="{stroke * 0.95:.1f}" fill="{RUST}"/>
+</svg>
+"""
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / "rustcast-mark.svg").write_text(svg(False, 30))
     (OUT / "rustcast-mark-animated.svg").write_text(svg(True, 30))
     (OUT / "rustcast-mark-small.svg").write_text(svg(False, 58, small=True))
+    (OUT / "rustcast-glyph-dark.svg").write_text(glyph("#F5F5F7"))
+    (OUT / "rustcast-glyph-light.svg").write_text(glyph("#1D1D1F"))
     print(f"wrote marks to {OUT}")
 
 
