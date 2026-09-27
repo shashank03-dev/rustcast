@@ -42,8 +42,11 @@ pub fn emoji_page(
             // Emoji text
             let element_column = Column::new().push(
                 Text::new(emoji.display_name.clone())
-                    .font(tile_theme.font())
-                    .size(28)
+                    .font(iced::Font {
+                        family: crate::fonts::emoji_family(),
+                        ..iced::Font::DEFAULT
+                    })
+                    .size(30)
                     .width(Length::Fill)
                     .height(Fill)
                     .align_y(Alignment::Center)
