@@ -558,6 +558,9 @@ impl Tile {
     /// should be separated out to make it easier to test. This function is called by the `update`
     /// function to handle the search query changed event.
     pub fn handle_search_query_changed(&mut self) {
+        /// Most emoji listed in the root search.
+        const MAIN_SEARCH_EMOJI: usize = 6;
+
         let query = self.query_lc.clone();
         let options = if self.page == Page::Main {
             &self.options
@@ -566,10 +569,24 @@ impl Tile {
         } else {
             &AppIndex::empty()
         };
-        let results: Vec<App> = options
+        let mut results: Vec<App> = options
             .search_prefix(&query)
             .map(|x| x.to_owned())
             .collect();
+
+        // Raycast-style: matching emoji show up in the root search too, after
+        // apps and commands (files stream in after them).
+        if self.page == Page::Main && query.chars().count() >= 2 {
+            let mut emoji: Vec<App> = self
+                .emoji_apps
+                .search_prefix(&query)
+                .map(|x| x.to_owned())
+                .collect();
+            // Names that start with the query first, then shorter names.
+            emoji.sort_by_key(|e| (!e.search_name.starts_with(&query), e.search_name.len()));
+            emoji.truncate(MAIN_SEARCH_EMOJI);
+            results.extend(emoji);
+        }
 
         self.results = results;
     }
