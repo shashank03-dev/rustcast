@@ -17,7 +17,7 @@ install-start:
 uninstall:
 	./scripts/uninstall.sh
 
-# Regenerate the red app icon set in assets/icons/.
+# Regenerate assets/icons/ from the RustCast logo (docs/icon.png)..
 icon:
 	python3 scripts/gen_icon.py
 
