@@ -367,12 +367,18 @@ fn update_inner(tile: &mut Tile, message: Message) -> Task<Message> {
                     _ => (false, false),
                 };
 
-                let y = if wrapped_down {
-                    0.0
+                let target = if wrapped_down {
+                    0
                 } else if wrapped_up {
-                    (len.saturating_sub(1)) as f32 * quantity
+                    len.saturating_sub(1)
                 } else {
-                    tile.focus_id as f32 * quantity
+                    tile.focus_id
+                };
+                let y = if tile.page == Page::Main {
+                    // Rows carry section labels, so offsets aren't uniform.
+                    crate::app::apps::row_offset(&tile.results, target as usize)
+                } else {
+                    target as f32 * quantity
                 };
 
                 if tile.page == Page::Recorder {
@@ -614,6 +620,24 @@ fn update_inner(tile: &mut Tile, message: Message) -> Task<Message> {
         Message::SwitchSettingsTab(tab) => {
             tile.settings_tab = tab;
             Task::none()
+        }
+
+        Message::SearchInPage(page, query) => {
+            tile.page = page;
+            tile.results.clear();
+            tile.focus_id = 0;
+            Task::batch([
+                // The page opens at the top, not at the root list's offset.
+                operation::snap_to(
+                    "results",
+                    iced::widget::operation::RelativeOffset {
+                        x: None,
+                        y: Some(0.0),
+                    },
+                ),
+                window::latest()
+                    .map(move |x| Message::SearchQueryChanged(query.clone(), x.unwrap())),
+            ])
         }
 
         Message::SwitchToPage(page) => {
@@ -869,7 +893,29 @@ fn update_inner(tile: &mut Tile, message: Message) -> Task<Message> {
             // shows the frequent/blank list) so stale files don't leak into it.
             let accept = tile.page == Page::FileSearch
                 || (tile.page == Page::Main && !tile.query_lc.is_empty());
-            if accept {
+            if accept && tile.page == Page::Main {
+                // The root search lists a few files, then a "Search files"
+                // row that opens the full file search.
+                let had_more = tile
+                    .results
+                    .iter()
+                    .any(|a| a.show_all_page() == Some(&Page::FileSearch));
+                tile.results
+                    .retain(|a| a.show_all_page() != Some(&Page::FileSearch));
+                let shown = tile.results.iter().filter(|a| a.is_file()).count();
+                let room = crate::app::apps::MAIN_SEARCH_FILES.saturating_sub(shown);
+                let overflow = had_more || apps.len() > room;
+                tile.results.extend(apps.into_iter().take(room));
+                if overflow {
+                    let query = tile.query.trim().to_string();
+                    tile.results.push(App::show_all(Page::FileSearch, &query));
+                }
+                let height = crate::app::main_results_window_height(&tile.results);
+                if height != tile.height {
+                    return window::latest()
+                        .map(move |x| Message::ResizeWindow(x.unwrap(), height));
+                }
+            } else if accept {
                 let prev_display_count = std::cmp::min(5, tile.results.len());
                 tile.results.extend(apps);
                 // On the dedicated File search page, show folders before files.
@@ -1799,20 +1845,23 @@ fn execute_query(tile: &mut Tile, id: Id) -> Task<Message> {
     }
 
     if !tile.results.is_empty() {
-        tile.results.par_sort_by_key(|x| -x.ranking);
+        // Keep the root search's groups together (apps, emoji, files); rank
+        // within each group.
+        tile.results.par_sort_by_key(|x| (x.group(), -x.ranking));
 
         let new_length = tile.results.len();
-        let max_elem = min(5, new_length);
+        let height = if tile.page == Page::Main {
+            crate::app::main_results_window_height(&tile.results)
+        } else {
+            crate::app::results_window_height(min(crate::app::MAX_VISIBLE_ROWS, new_length))
+        };
 
-        if prev_size == new_length {
+        if prev_size == new_length && height == tile.height {
             return task;
         }
 
         return task.chain(Task::batch([
-            Task::done(Message::ResizeWindow(
-                id,
-                crate::app::results_window_height(max_elem),
-            )),
+            Task::done(Message::ResizeWindow(id, height)),
             Task::done(Message::ChangeFocus(ArrowKey::Left, 1)),
         ]));
     }

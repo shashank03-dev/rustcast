@@ -558,9 +558,6 @@ impl Tile {
     /// should be separated out to make it easier to test. This function is called by the `update`
     /// function to handle the search query changed event.
     pub fn handle_search_query_changed(&mut self) {
-        /// Most emoji listed in the root search.
-        const MAIN_SEARCH_EMOJI: usize = 6;
-
         let query = self.query_lc.clone();
         let options = if self.page == Page::Main {
             &self.options
@@ -584,8 +581,12 @@ impl Tile {
                 .collect();
             // Names that start with the query first, then shorter names.
             emoji.sort_by_key(|e| (!e.search_name.starts_with(&query), e.search_name.len()));
-            emoji.truncate(MAIN_SEARCH_EMOJI);
+            let more = emoji.len() > crate::app::apps::MAIN_SEARCH_EMOJI;
+            emoji.truncate(crate::app::apps::MAIN_SEARCH_EMOJI);
             results.extend(emoji);
+            if more {
+                results.push(App::show_all(Page::EmojiSearch, self.query.trim()));
+            }
         }
 
         self.results = results;
