@@ -96,6 +96,23 @@ pub fn focus_window(win: u32) -> Option<()> {
     Some(())
 }
 
+/// Raise a window to the top of the stack, even when it is already the
+/// active window (activation alone does not restack it then).
+pub fn raise_window(win: u32) -> Option<()> {
+    let x = X11::open()?;
+    let atom = x.atom("_NET_RESTACK_WINDOW")?;
+    // source indication = 2 (pager), sibling = None, detail = Above (0)
+    x.send_client_message(win, atom, [2, 0, 0, 0, 0]);
+    // Window managers that ignore the EWMH request still honour a plain
+    // stacking request for their client.
+    use x11rb::protocol::xproto::{ConfigureWindowAux, StackMode};
+    let _ = x
+        .conn
+        .configure_window(win, &ConfigureWindowAux::new().stack_mode(StackMode::ABOVE));
+    x.conn.flush().ok()?;
+    Some(())
+}
+
 fn keysym_to_keycode(x: &X11, keysym: u32) -> Option<u8> {
     let setup = x.conn.setup();
     let min = setup.min_keycode;

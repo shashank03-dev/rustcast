@@ -74,6 +74,8 @@ pub enum Function {
         mode: String,
         delay: u64,
     },
+    /// Screenshot one window (X11 id), then annotate.
+    CaptureWindow(u32),
 }
 
 impl Function {
@@ -172,6 +174,14 @@ impl Function {
                 thread::spawn(|| {
                     thread::sleep(std::time::Duration::from_millis(350));
                     crate::app::screenshot::trigger_capture();
+                });
+            }
+
+            Function::CaptureWindow(xid) => {
+                let xid = xid.to_string();
+                thread::spawn(move || {
+                    thread::sleep(std::time::Duration::from_millis(350));
+                    crate::snap::spawn(&["window-id", &xid]);
                 });
             }
 

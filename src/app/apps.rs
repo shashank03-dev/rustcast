@@ -362,6 +362,30 @@ impl App {
                 0,
             ),
             (
+                "Copy Code from Screen",
+                "ocr copy code from screen extract indentation",
+                "ocr-code",
+                0,
+            ),
+            (
+                "Copy Table from Screen",
+                "ocr copy table from screen extract spreadsheet csv",
+                "ocr-table",
+                0,
+            ),
+            (
+                "Pick Colours from Screen",
+                "colour color palette picker extract colors from screen hex",
+                "palette",
+                0,
+            ),
+            (
+                "Compare Last Two Screenshots",
+                "compare screenshots diff before after difference",
+                "compare",
+                0,
+            ),
+            (
                 "Capture Area in 3 Seconds",
                 "screenshot timer delay 3 seconds",
                 "area",

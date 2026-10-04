@@ -42,6 +42,10 @@ pub fn api_key() -> Option<String> {
 fn options() -> Vec<(&'static str, &'static str, Option<Intent>)> {
     use TilePosition::*;
     let tile = |key, desc, pos| (key, desc, Some(Intent::Tile(pos)));
+    let capture = |mode: &str| Intent::Capture {
+        mode: mode.to_string(),
+        delay: 0,
+    };
     vec![
         tile(
             "tile_left_half",
@@ -109,6 +113,36 @@ fn options() -> Vec<(&'static str, &'static str, Option<Intent>)> {
             Some(Intent::ShowDesktop),
         ),
         ("screenshot", "Take a screenshot", Some(Intent::Screenshot)),
+        (
+            "screenshot_full_screen",
+            "Take a screenshot of the whole screen",
+            Some(capture("fullscreen")),
+        ),
+        (
+            "copy_text_from_screen",
+            "Copy or read text that is visible on the screen (OCR)",
+            Some(capture("ocr")),
+        ),
+        (
+            "copy_code_from_screen",
+            "Copy code that is visible on the screen, keeping indentation",
+            Some(capture("ocr-code")),
+        ),
+        (
+            "copy_table_from_screen",
+            "Copy a table on the screen into a spreadsheet",
+            Some(capture("ocr-table")),
+        ),
+        (
+            "pick_colors",
+            "Pick colours or get a colour palette from the screen",
+            Some(capture("palette")),
+        ),
+        (
+            "compare_screenshots",
+            "Compare two screenshots, before and after, find differences",
+            Some(capture("compare")),
+        ),
         (
             "record_screen",
             "Start recording the whole screen as a video",

@@ -1,10 +1,19 @@
-//! OCR: read the text inside a screenshot.
+//! OCR: read the text inside a screenshot — as prose, as code or as a table.
 //!
 //! Engine: the system `tesseract` binary, run as a short-lived child process.
 //! Nothing is loaded into RustCast itself — the engine and its language model
 //! only occupy memory for the fraction of a second the recognition takes and
 //! are released as soon as it exits. That keeps the launcher's footprint at
 //! zero for this feature, which is what low-end machines need.
+//!
+//! One run produces every word with its position (Tesseract's TSV output).
+//! From that single result:
+//! - [`Recognition::text`] rebuilds lines and paragraphs,
+//! - [`Recognition::code`] rebuilds indentation and spacing from the word
+//!   positions (Tesseract itself drops leading whitespace),
+//! - [`Recognition::table`] finds columns from the empty vertical gutters and
+//!   returns cells (copied as tab-separated values, which spreadsheets paste
+//!   straight into cells, or saved as CSV).
 //!
 //! The crop is prepared so Tesseract does well on screen text (which is far
 //! smaller and lower-DPI than the scans it is tuned for):
@@ -18,20 +27,32 @@
 //!   start-up cost.
 
 use std::io::Write;
-use std::path::Path;
 use std::process::{Command, Stdio};
-use std::sync::mpsc;
-use std::time::Duration;
 
-use gtk::glib;
-use gtk::prelude::*;
 use image::{GrayImage, RgbaImage};
-
-use crate::config::ScreenshotConfig;
 
 /// Largest image (in pixels) handed to the engine after upscaling.
 const MAX_PIXELS: u32 = 6_000_000;
 const MARGIN: u32 = 12;
+
+/// How the recognised text should be laid out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Layout {
+    Text,
+    Code,
+    Table,
+}
+
+impl Layout {
+    pub fn parse(s: &str) -> Option<Layout> {
+        match s.to_ascii_lowercase().as_str() {
+            "text" => Some(Layout::Text),
+            "code" => Some(Layout::Code),
+            "table" => Some(Layout::Table),
+            _ => None,
+        }
+    }
+}
 
 pub fn tesseract_installed() -> bool {
     Command::new("tesseract")
@@ -42,7 +63,7 @@ pub fn tesseract_installed() -> bool {
         .is_ok()
 }
 
-/// Installed Tesseract language packs (e.g. `["eng", "hin", "osd"]`).
+/// Installed Tesseract language packs (e.g. `["eng", "hin"]`).
 pub fn installed_languages() -> Vec<String> {
     Command::new("tesseract")
         .arg("--list-langs")
@@ -127,19 +148,56 @@ fn to_pgm(img: &GrayImage) -> Vec<u8> {
     out
 }
 
-/// Recognise the text in `img`. `languages` is a Tesseract language string
-/// such as `eng` or `eng+hin`.
-pub fn recognize(img: &RgbaImage, languages: &str) -> Result<String, String> {
+/// One recognised word, in the coordinates of the prepared image.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Word {
+    pub text: String,
+    pub left: i32,
+    pub top: i32,
+    pub width: i32,
+    pub height: i32,
+    pub block: u32,
+    pub par: u32,
+    pub line: u32,
+}
+
+impl Word {
+    fn right(&self) -> i32 {
+        self.left + self.width
+    }
+    fn bottom(&self) -> i32 {
+        self.top + self.height
+    }
+    fn center_y(&self) -> f64 {
+        f64::from(self.top) + f64::from(self.height) / 2.0
+    }
+}
+
+/// Everything one OCR run found.
+#[derive(Debug, Clone, Default)]
+pub struct Recognition {
+    pub words: Vec<Word>,
+}
+
+/// Recognise the words in `img`. `languages` is a Tesseract language string
+/// such as `eng` or `eng+hin`. `layout` is what the caller wants (if known):
+/// code and tables are read as one uniform block, which keeps lone braces
+/// and sparse cells that page segmentation tends to drop.
+pub fn recognize(
+    img: &RgbaImage,
+    languages: &str,
+    layout: Option<Layout>,
+) -> Result<Recognition, String> {
     if !tesseract_installed() {
         return Err(missing_engine_message());
     }
     let langs = pick_languages(languages, &installed_languages());
     let pgm = to_pgm(&prepare(img));
 
-    let run = |psm: &str| -> Result<String, String> {
+    let run = |psm: &str| -> Result<Recognition, String> {
         let mut child = Command::new("tesseract")
             .args([
-                "stdin", "stdout", "-l", &langs, "--psm", psm, "--dpi", "300",
+                "stdin", "stdout", "-l", &langs, "--psm", psm, "--dpi", "300", "tsv",
             ])
             .env("OMP_THREAD_LIMIT", "1")
             .stdin(Stdio::piped())
@@ -154,30 +212,451 @@ pub fn recognize(img: &RgbaImage, languages: &str) -> Result<String, String> {
         if !out.status.success() {
             return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
         }
-        Ok(clean(&String::from_utf8_lossy(&out.stdout)))
+        Ok(parse_tsv(&String::from_utf8_lossy(&out.stdout)))
     };
 
-    // Automatic page segmentation handles columns and mixed layouts; a single
-    // text block is the better guess when that finds nothing (tiny crops).
-    let text = run("3")?;
-    if text.is_empty() { run("6") } else { Ok(text) }
+    match layout {
+        Some(Layout::Code | Layout::Table) => run("6"),
+        _ => {
+            // Automatic page segmentation handles columns and mixed layouts.
+            // A single block is better for tiny crops (nothing found) and for
+            // code, which it reads with its punctuation-only lines.
+            let r = run("3")?;
+            if r.words.is_empty() || r.looks_like_code() {
+                let block = run("6")?;
+                if block.words.len() >= r.words.len() {
+                    return Ok(block);
+                }
+            }
+            Ok(r)
+        }
+    }
 }
 
-/// Tidy Tesseract output: drop form feeds, trailing spaces and runs of blank lines.
-fn clean(raw: &str) -> String {
-    let mut out = String::with_capacity(raw.len());
-    let mut blank = 0;
-    for line in raw.replace('\u{c}', "").lines() {
-        let line = line.trim_end();
-        if line.trim().is_empty() {
-            blank += 1;
+/// Parse Tesseract's TSV output (level 5 rows are words).
+pub fn parse_tsv(tsv: &str) -> Recognition {
+    let words = tsv
+        .lines()
+        .skip(1)
+        .filter_map(|line| {
+            let f: Vec<&str> = line.splitn(12, '\t').collect();
+            if f.len() < 12 || f[0] != "5" {
+                return None;
+            }
+            let text = f[11].trim();
+            if text.is_empty() {
+                return None;
+            }
+            let n = |i: usize| f[i].trim().parse::<i32>().ok();
+            Some(Word {
+                text: text.to_string(),
+                block: n(2)? as u32,
+                par: n(3)? as u32,
+                line: n(4)? as u32,
+                left: n(6)?,
+                top: n(7)?,
+                width: n(8)?,
+                height: n(9)?,
+            })
+        })
+        .collect();
+    Recognition { words }
+}
+
+fn median(mut v: Vec<f64>) -> f64 {
+    if v.is_empty() {
+        return 0.0;
+    }
+    v.sort_by(|a, b| a.total_cmp(b));
+    v[v.len() / 2]
+}
+
+impl Recognition {
+    pub fn is_empty(&self) -> bool {
+        self.words.is_empty()
+    }
+
+    /// Lines and paragraphs as Tesseract understood them.
+    pub fn text(&self) -> String {
+        let mut out = String::new();
+        let mut prev: Option<&Word> = None;
+        for w in &self.words {
+            if let Some(p) = prev {
+                if (p.block, p.par) != (w.block, w.par) {
+                    out.push_str("\n\n");
+                } else if p.line != w.line {
+                    out.push('\n');
+                } else {
+                    out.push(' ');
+                }
+            }
+            out.push_str(&w.text);
+            prev = Some(w);
+        }
+        out
+    }
+
+    /// Average character width (monospace advance for code).
+    fn char_width(&self) -> f64 {
+        let cw = median(
+            self.words
+                .iter()
+                .filter(|w| w.text.chars().count() >= 2)
+                .map(|w| f64::from(w.width) / w.text.chars().count() as f64)
+                .collect(),
+        );
+        if cw > 0.0 {
+            cw
+        } else {
+            median(
+                self.words
+                    .iter()
+                    .map(|w| f64::from(w.height) * 0.55)
+                    .collect(),
+            )
+            .max(1.0)
+        }
+    }
+
+    fn line_height(&self) -> f64 {
+        median(self.words.iter().map(|w| f64::from(w.height)).collect()).max(1.0)
+    }
+
+    /// Visual rows: words grouped by vertical position (independent of how
+    /// Tesseract split blocks), each sorted left to right, top to bottom.
+    fn rows(&self) -> Vec<Vec<&Word>> {
+        let lh = self.line_height();
+        let mut words: Vec<&Word> = self.words.iter().collect();
+        words.sort_by(|a, b| a.center_y().total_cmp(&b.center_y()));
+        let mut rows: Vec<(f64, Vec<&Word>)> = Vec::new();
+        for w in words {
+            match rows.last_mut() {
+                Some((cy, row)) if (w.center_y() - *cy).abs() < lh * 0.5 => {
+                    row.push(w);
+                    *cy = row.iter().map(|w| w.center_y()).sum::<f64>() / row.len() as f64;
+                }
+                _ => rows.push((w.center_y(), vec![w])),
+            }
+        }
+        rows.into_iter()
+            .map(|(_, mut r)| {
+                r.sort_by_key(|w| w.left);
+                r
+            })
+            .collect()
+    }
+
+    /// Code: indentation and runs of spaces rebuilt from word positions,
+    /// blank lines kept.
+    pub fn code(&self) -> String {
+        let cw = self.char_width();
+        let lh = self.line_height();
+        let rows = self.rows();
+        let min_left = rows
+            .iter()
+            .filter_map(|r| r.first().map(|w| w.left))
+            .min()
+            .unwrap_or(0);
+        let indents: Vec<usize> = rows
+            .iter()
+            .map(|r| (f64::from(r[0].left - min_left) / cw).round().max(0.0) as usize)
+            .collect();
+        // The indent unit (2, 4, …): the smallest indentation used.
+        let unit = indents
+            .iter()
+            .copied()
+            .filter(|i| *i >= 2)
+            .min()
+            .unwrap_or(0);
+        let mut out = String::new();
+        let mut prev_bottom: Option<i32> = None;
+        for (ri, row) in rows.iter().enumerate() {
+            let top = row.iter().map(|w| w.top).min().unwrap_or(0);
+            if let Some(pb) = prev_bottom {
+                let gap = f64::from(top - pb);
+                let blanks = ((gap - lh * 0.6) / (lh * 1.4)).round().clamp(0.0, 2.0) as usize;
+                for _ in 0..blanks {
+                    out.push('\n');
+                }
+                out.push('\n');
+            }
+            out.push_str(&" ".repeat(snap_indent(indents[ri], unit)));
+            for (i, w) in row.iter().enumerate() {
+                if i > 0 {
+                    // Ink boxes exclude side bearings, so a single space
+                    // measures a bit more than one advance.
+                    let gap = f64::from(w.left - row[i - 1].right()) / cw;
+                    out.push_str(&" ".repeat((gap - 0.35).round().max(0.0) as usize));
+                }
+                out.push_str(&w.text);
+            }
+            prev_bottom = Some(row.iter().map(|w| w.bottom()).max().unwrap_or(top));
+        }
+        out
+    }
+
+    /// Table cells: rows by vertical position, columns from the gutters that
+    /// no phrase crosses.
+    pub fn table(&self) -> Vec<Vec<String>> {
+        let cw = self.char_width();
+        let rows = self.rows();
+        // Words closer than ~2 characters belong to the same cell.
+        let phrases: Vec<Vec<(i32, i32, String)>> = rows
+            .iter()
+            .map(|row| {
+                let mut cells: Vec<(i32, i32, String)> = Vec::new();
+                for w in row {
+                    match cells.last_mut() {
+                        Some((_, r, t)) if f64::from(w.left - *r) < cw * 1.8 => {
+                            t.push(' ');
+                            t.push_str(&w.text);
+                            *r = w.right();
+                        }
+                        _ => cells.push((w.left, w.right(), w.text.clone())),
+                    }
+                }
+                cells
+            })
+            .collect();
+
+        // Column bands: union of overlapping phrase extents.
+        let mut spans: Vec<(i32, i32)> =
+            phrases.iter().flatten().map(|(l, r, _)| (*l, *r)).collect();
+        spans.sort();
+        let mut bands: Vec<(i32, i32)> = Vec::new();
+        for (l, r) in spans {
+            match bands.last_mut() {
+                Some((_, br)) if l <= *br => *br = (*br).max(r),
+                _ => bands.push((l, r)),
+            }
+        }
+
+        phrases
+            .into_iter()
+            .map(|cells| {
+                let mut out = vec![String::new(); bands.len()];
+                for (l, r, t) in cells {
+                    let mid = (l + r) / 2;
+                    let col = bands
+                        .iter()
+                        .position(|(bl, br)| mid >= *bl && mid <= *br)
+                        .unwrap_or(0);
+                    if !out[col].is_empty() {
+                        out[col].push(' ');
+                    }
+                    out[col].push_str(&t);
+                }
+                out
+            })
+            .collect()
+    }
+
+    /// Heuristic: indentation or code punctuation on many lines.
+    pub fn looks_like_code(&self) -> bool {
+        let code = self.code();
+        let lines: Vec<&str> = code.lines().filter(|l| !l.trim().is_empty()).collect();
+        if lines.len() < 2 {
+            return false;
+        }
+        let codey = lines
+            .iter()
+            .filter(|l| {
+                l.starts_with("  ")
+                    || l.trim_end().ends_with(['{', '}', ';', ')', ','])
+                    || [
+                        "=>", "->", "::", "();", "==", "!=", "fn ", "def ", "let ", "const ", "$ ",
+                    ]
+                    .iter()
+                    .any(|t| l.contains(t))
+            })
+            .count();
+        codey * 10 >= lines.len() * 4
+    }
+
+    /// Heuristic: at least three rows with two or more aligned cells.
+    pub fn looks_like_table(&self) -> bool {
+        let t = self.table();
+        let cols = t.first().map(Vec::len).unwrap_or(0);
+        let multi = t
+            .iter()
+            .filter(|r| r.iter().filter(|c| !c.is_empty()).count() >= 2)
+            .count();
+        cols >= 2 && multi >= 3 && multi * 10 >= t.len() * 6
+    }
+
+    /// The best initial layout for this result.
+    pub fn guess_layout(&self) -> Layout {
+        if self.looks_like_code() {
+            Layout::Code
+        } else {
+            Layout::Text
+        }
+    }
+
+    pub fn render(&self, layout: Layout) -> String {
+        match layout {
+            Layout::Text => self.text(),
+            Layout::Code => self.code(),
+            Layout::Table => to_tsv(&self.table()),
+        }
+    }
+}
+
+/// Snap an indentation that is one column off a multiple of the indent unit
+/// (glyph side-bearings differ between letters).
+fn snap_indent(indent: usize, unit: usize) -> usize {
+    if unit < 2 {
+        return indent;
+    }
+    let nearest = ((indent as f64 / unit as f64).round() as usize) * unit;
+    if nearest.abs_diff(indent) <= 1 {
+        nearest
+    } else {
+        indent
+    }
+}
+
+/// Tab-separated values — what spreadsheets expect on the clipboard.
+pub fn to_tsv(rows: &[Vec<String>]) -> String {
+    rows.iter()
+        .map(|r| {
+            r.iter()
+                .map(|c| c.replace(['\t', '\n'], " "))
+                .collect::<Vec<_>>()
+                .join("\t")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// RFC 4180 CSV.
+pub fn to_csv(rows: &[Vec<String>]) -> String {
+    let field = |c: &String| {
+        if c.contains([',', '"', '\n', '\r']) || c.starts_with(' ') || c.ends_with(' ') {
+            format!("\"{}\"", c.replace('"', "\"\""))
+        } else {
+            c.clone()
+        }
+    };
+    let mut out = rows
+        .iter()
+        .map(|r| r.iter().map(field).collect::<Vec<_>>().join(","))
+        .collect::<Vec<_>>()
+        .join("\r\n");
+    out.push_str("\r\n");
+    out
+}
+
+/// Something actionable found in recognised text.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Smart {
+    Link(String),
+    Email(String),
+    Phone(String),
+    Color(String),
+    /// An arithmetic expression and its value.
+    Math(String, String),
+}
+
+/// Find links, e-mail addresses, phone numbers, hex colours and sums.
+pub fn smart_actions(text: &str) -> Vec<Smart> {
+    let mut out: Vec<Smart> = Vec::new();
+    let mut push = |s: Smart| {
+        if !out.contains(&s) && out.len() < 8 {
+            out.push(s);
+        }
+    };
+    let trim = |t: &str| {
+        t.trim_matches(|c: char| {
+            matches!(
+                c,
+                '(' | ')' | '[' | ']' | '<' | '>' | '"' | '\'' | ',' | ';' | '.' | ':' | '!' | '?'
+            )
+        })
+        .to_string()
+    };
+    const TLDS: [&str; 16] = [
+        "com", "org", "net", "io", "dev", "app", "ai", "co", "in", "uk", "de", "gov", "edu", "me",
+        "rs", "info",
+    ];
+    for raw in text.split_whitespace() {
+        let tok = trim(raw);
+        if tok.len() < 4 {
             continue;
         }
-        if !out.is_empty() {
-            out.push_str(if blank > 0 { "\n\n" } else { "\n" });
+        let lower = tok.to_ascii_lowercase();
+        if let Some((user, domain)) = tok.split_once('@')
+            && !user.is_empty()
+            && domain.contains('.')
+            && !domain.starts_with('.')
+            && !domain.ends_with('.')
+            && !tok.contains('/')
+        {
+            push(Smart::Email(tok.clone()));
+        } else if lower.starts_with("http://") || lower.starts_with("https://") {
+            push(Smart::Link(tok.clone()));
+        } else if lower.starts_with("www.") && tok.len() > 6 {
+            push(Smart::Link(format!("https://{tok}")));
+        } else if let Some(host) = lower.split('/').next()
+            && host.contains('.')
+            && !host.starts_with('.')
+            && host
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-')
+            && host
+                .rsplit('.')
+                .next()
+                .is_some_and(|tld| TLDS.contains(&tld))
+        {
+            push(Smart::Link(format!("https://{tok}")));
+        } else if let Some(hex) = tok.strip_prefix('#')
+            && (hex.len() == 6 || hex.len() == 3)
+            && hex.chars().all(|c| c.is_ascii_hexdigit())
+        {
+            push(Smart::Color(format!("#{}", hex.to_ascii_uppercase())));
         }
-        blank = 0;
-        out.push_str(line);
+    }
+
+    // Phone numbers may contain spaces: scan runs of phone characters.
+    let mut run = String::new();
+    for c in text.chars().chain(std::iter::once('\n')) {
+        if c.is_ascii_digit() || matches!(c, '+' | '-' | '(' | ')' | ' ') {
+            run.push(c);
+            continue;
+        }
+        let digits = run.chars().filter(char::is_ascii_digit).count();
+        let candidate = run.trim().trim_matches(['-', ')']).trim().to_string();
+        if (10..=15).contains(&digits)
+            && (candidate.starts_with('+') || candidate.contains([' ', '-', '(']))
+        {
+            push(Smart::Phone(candidate));
+        }
+        run.clear();
+    }
+
+    // A single line that is a sum: "1,249.00 * 12".
+    let t = text.trim();
+    // Dates and ranges ("2024-01-05", "10-20") are not sums: a minus only
+    // counts when it is spaced out.
+    let has_operator = t
+        .chars()
+        .any(|c| matches!(c, '+' | '*' | '/' | '×' | '÷' | '^'))
+        || t.contains(" - ");
+    if !t.contains('\n') && has_operator && !t.contains("://") {
+        let expr = t
+            .replace(['×', 'x', 'X'], "*")
+            .replace('÷', "/")
+            .replace(',', "");
+        if expr.chars().any(|c| c.is_ascii_digit())
+            && let Ok(e) = crate::calculator::Expr::from_str(&expr)
+            && let Some(v) = e.eval()
+            && v.is_finite()
+        {
+            push(Smart::Math(
+                t.to_string(),
+                crate::unit_conversion::format_number(v),
+            ));
+        }
     }
     out
 }
@@ -188,289 +667,26 @@ pub fn missing_engine_message() -> String {
      Fedora:           sudo dnf install tesseract\n\
      Arch:             sudo pacman -S tesseract tesseract-data-eng\n\n\
      Extra languages, e.g. Hindi:  sudo apt install tesseract-ocr-hin\n\
-     then set ocr_languages = \"eng+hin\" under [screenshot] in the config."
+     then set OCR languages to eng+hin in RustCast Settings."
         .to_string()
-}
-
-/// `ocr-file` mode: read the text of an image on disk.
-pub fn run_file(path: &Path, cfg: ScreenshotConfig) {
-    match image::open(path) {
-        Ok(img) => run_on_image(img.into_rgba8(), cfg),
-        Err(e) => eprintln!("rustcast ocr: cannot open {}: {e}", path.display()),
-    }
-}
-
-/// Recognise `img` off the GTK thread, copy the result and show it.
-/// Blocks (runs a GTK main loop) until the result window is closed.
-pub fn run_on_image(img: RgbaImage, cfg: ScreenshotConfig) {
-    let (tx, rx) = mpsc::channel();
-    let langs = cfg.ocr_languages.clone();
-    std::thread::spawn(move || {
-        let codes = super::qr::decode(&img);
-        let text = recognize(&img, &langs);
-        drop(img);
-        let _ = tx.send((text, codes));
-    });
-
-    let spinner = busy_window("Reading text…");
-    let main_loop = glib::MainLoop::new(None, false);
-    let result = std::rc::Rc::new(std::cell::RefCell::new(None));
-    {
-        let main_loop = main_loop.clone();
-        let result = result.clone();
-        glib::timeout_add_local(Duration::from_millis(40), move || match rx.try_recv() {
-            Ok(r) => {
-                *result.borrow_mut() = Some(r);
-                main_loop.quit();
-                glib::ControlFlow::Break
-            }
-            Err(mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
-            Err(mpsc::TryRecvError::Disconnected) => {
-                main_loop.quit();
-                glib::ControlFlow::Break
-            }
-        });
-    }
-    main_loop.run();
-    spinner.close();
-
-    let Some((text, codes)) = result.borrow_mut().take() else {
-        return;
-    };
-    let (text, error) = match text {
-        Ok(t) => (t, None),
-        Err(e) => (String::new(), Some(e)),
-    };
-    if !text.is_empty() {
-        super::copy_text(&text);
-    } else if let Some(first) = codes.first() {
-        super::copy_text(first);
-    }
-    show_result(text, codes, error, cfg);
-}
-
-/// A tiny "working…" pill in the middle of the screen.
-pub fn busy_window(label: &str) -> gtk::Window {
-    let window = gtk::Window::new(gtk::WindowType::Popup);
-    window.set_position(gtk::WindowPosition::Center);
-    window.set_keep_above(true);
-    let lbl = gtk::Label::new(Some(label));
-    lbl.set_margin_top(14);
-    lbl.set_margin_bottom(14);
-    lbl.set_margin_start(22);
-    lbl.set_margin_end(22);
-    window.add(&lbl);
-    window.show_all();
-    super::flush_gtk();
-    window
-}
-
-/// The result window: editable recognised text, QR codes, Copy / Translate / Search.
-fn show_result(text: String, codes: Vec<String>, error: Option<String>, cfg: ScreenshotConfig) {
-    let window = gtk::Window::new(gtk::WindowType::Toplevel);
-    window.set_title("Text from screen — RustCast");
-    window.set_default_size(560, 380);
-    window.set_position(gtk::WindowPosition::Center);
-    window.set_keep_above(true);
-    window.set_type_hint(gtk::gdk::WindowTypeHint::Dialog);
-
-    let root = gtk::Box::new(gtk::Orientation::Vertical, 8);
-    root.set_margin_top(12);
-    root.set_margin_bottom(12);
-    root.set_margin_start(12);
-    root.set_margin_end(12);
-
-    let status = gtk::Label::new(None);
-    status.set_xalign(0.0);
-    status.set_line_wrap(true);
-    let chars = text.chars().count();
-    status.set_markup(&match (&error, chars, codes.is_empty()) {
-        (Some(_), _, true) => "<b>Couldn't read text</b>".to_string(),
-        (_, 0, true) => "<b>No text found</b> in the selection".to_string(),
-        (_, 0, false) => "<b>QR code copied</b> to the clipboard".to_string(),
-        _ => format!("<b>Copied</b> {chars} characters to the clipboard"),
-    });
-    root.pack_start(&status, false, false, 0);
-
-    for code in &codes {
-        let row = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-        let label = gtk::Label::new(Some(&format!("QR: {code}")));
-        label.set_xalign(0.0);
-        label.set_ellipsize(gtk::pango::EllipsizeMode::End);
-        label.set_selectable(true);
-        row.pack_start(&label, true, true, 0);
-        let copy = gtk::Button::with_label("Copy");
-        {
-            let code = code.clone();
-            copy.connect_clicked(move |_| super::copy_text(&code));
-        }
-        row.pack_end(&copy, false, false, 0);
-        if code.starts_with("http://") || code.starts_with("https://") {
-            let open = gtk::Button::with_label("Open");
-            let code = code.clone();
-            open.connect_clicked(move |_| super::open_url(&code));
-            row.pack_end(&open, false, false, 0);
-        }
-        root.pack_start(&row, false, false, 0);
-    }
-
-    let view = gtk::TextView::new();
-    view.set_wrap_mode(gtk::WrapMode::WordChar);
-    view.set_left_margin(8);
-    view.set_right_margin(8);
-    view.set_top_margin(6);
-    view.set_bottom_margin(6);
-    if let Some(buffer) = view.buffer() {
-        buffer.set_text(error.as_deref().unwrap_or(&text));
-    }
-    let scroll = gtk::ScrolledWindow::new(None::<&gtk::Adjustment>, None::<&gtk::Adjustment>);
-    scroll.set_shadow_type(gtk::ShadowType::In);
-    scroll.add(&view);
-    root.pack_start(&scroll, true, true, 0);
-
-    let current_text = {
-        let view = view.clone();
-        move || -> String {
-            view.buffer()
-                .and_then(|b| b.text(&b.start_iter(), &b.end_iter(), false))
-                .map(|s| s.to_string())
-                .unwrap_or_default()
-        }
-    };
-
-    let buttons = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-    let target = cfg.translate_target();
-    let copy = gtk::Button::with_label("Copy");
-    let translate = gtk::Button::with_label(&format!("Translate → {target}"));
-    let search = gtk::Button::with_label("Search");
-    let close = gtk::Button::with_label("Close");
-    buttons.pack_start(&copy, false, false, 0);
-    buttons.pack_start(&translate, false, false, 0);
-    buttons.pack_start(&search, false, false, 0);
-    buttons.pack_end(&close, false, false, 0);
-    root.pack_start(&buttons, false, false, 0);
-    window.add(&root);
-
-    {
-        let current_text = current_text.clone();
-        let status = status.clone();
-        copy.connect_clicked(move |_| {
-            super::copy_text(&current_text());
-            status.set_markup("<b>Copied</b> to the clipboard");
-        });
-    }
-    {
-        let current_text = current_text.clone();
-        let status = status.clone();
-        let view = view.clone();
-        translate.connect_clicked(move |btn| {
-            let text = current_text();
-            if text.trim().is_empty() {
-                return;
-            }
-            // Offline-friendly path: translate-shell prints the translation
-            // in-place. Without it, hand off to the browser.
-            if !has_translate_shell() {
-                let url = format!(
-                    "https://translate.google.com/?sl=auto&tl={}&op=translate&text={}",
-                    target,
-                    url::form_urlencoded::byte_serialize(
-                        text.chars().take(5000).collect::<String>().as_bytes()
-                    )
-                    .collect::<String>()
-                );
-                super::open_url(&url);
-                return;
-            }
-            btn.set_sensitive(false);
-            status.set_markup("<b>Translating…</b>");
-            let (tx, rx) = mpsc::channel();
-            let target = target.clone();
-            std::thread::spawn(move || {
-                let _ = tx.send(translate_shell(&text, &target));
-            });
-            let (status, view, btn) = (status.clone(), view.clone(), btn.clone());
-            glib::timeout_add_local(Duration::from_millis(60), move || match rx.try_recv() {
-                Ok(result) => {
-                    btn.set_sensitive(true);
-                    match result {
-                        Ok(t) => {
-                            if let Some(b) = view.buffer() {
-                                b.set_text(&t);
-                            }
-                            super::copy_text(&t);
-                            status.set_markup("<b>Translated</b> and copied to the clipboard");
-                        }
-                        Err(e) => status.set_text(&format!("Translation failed: {e}")),
-                    }
-                    glib::ControlFlow::Break
-                }
-                Err(mpsc::TryRecvError::Empty) => glib::ControlFlow::Continue,
-                Err(_) => glib::ControlFlow::Break,
-            });
-        });
-    }
-    {
-        let current_text = current_text.clone();
-        let search_url = super::load_config().search_url;
-        search.connect_clicked(move |_| {
-            let q: String = current_text().chars().take(300).collect();
-            let q = url::form_urlencoded::byte_serialize(q.trim().as_bytes()).collect::<String>();
-            super::open_url(&search_url.replace("%s", &q));
-        });
-    }
-    {
-        let window = window.clone();
-        close.connect_clicked(move |_| window.close());
-    }
-    window.connect_key_press_event(|w, ev| {
-        if ev.keyval() == gtk::gdk::keys::constants::Escape {
-            w.close();
-            return glib::Propagation::Stop;
-        }
-        glib::Propagation::Proceed
-    });
-
-    window.connect_destroy(|_| gtk::main_quit());
-    window.show_all();
-    window.present();
-    gtk::main();
-    if !super::main_instance_running() {
-        super::linger_for_clipboard();
-    }
-}
-
-fn has_translate_shell() -> bool {
-    Command::new("trans")
-        .arg("-V")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok()
-}
-
-fn translate_shell(text: &str, target: &str) -> Result<String, String> {
-    let out = Command::new("trans")
-        .args([
-            "-b",
-            "-no-ansi",
-            "-no-autocorrect",
-            &format!(":{target}"),
-            text,
-        ])
-        .output()
-        .map_err(|e| e.to_string())?;
-    let t = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    if t.is_empty() {
-        Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
-    } else {
-        Ok(t)
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn w(text: &str, left: i32, top: i32, block: u32, line: u32) -> Word {
+        Word {
+            text: text.to_string(),
+            left,
+            top,
+            width: text.chars().count() as i32 * 10,
+            height: 20,
+            block,
+            par: 1,
+            line,
+        }
+    }
 
     #[test]
     fn language_selection_falls_back_gracefully() {
@@ -482,15 +698,134 @@ mod tests {
     }
 
     #[test]
-    fn output_is_tidied() {
-        assert_eq!(clean("Hello  \n\n\n\nWorld\n\u{c}"), "Hello\n\nWorld");
-        assert_eq!(clean("a\nb\n"), "a\nb");
-        assert_eq!(clean("   \n\n"), "");
+    fn tsv_is_parsed_into_words() {
+        let tsv = "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n\
+                   1\t1\t0\t0\t0\t0\t0\t0\t100\t100\t-1\t\n\
+                   5\t1\t1\t1\t1\t1\t10\t12\t50\t20\t96.1\tHello\n\
+                   5\t1\t1\t1\t1\t2\t70\t12\t50\t20\t95.0\tworld\n\
+                   5\t1\t1\t1\t1\t3\t130\t12\t5\t20\t10.0\t \n";
+        let r = parse_tsv(tsv);
+        assert_eq!(r.words.len(), 2);
+        assert_eq!(r.text(), "Hello world");
+    }
+
+    #[test]
+    fn text_keeps_lines_and_paragraphs() {
+        let r = Recognition {
+            words: vec![
+                w("a", 0, 0, 1, 1),
+                w("a2", 30, 0, 1, 1),
+                w("b", 0, 40, 1, 2),
+                w("c", 0, 100, 2, 1),
+            ],
+        };
+        assert_eq!(r.text(), "a a2\nb\n\nc");
+    }
+
+    #[test]
+    fn code_rebuilds_indentation_and_blank_lines() {
+        // 10 px per character.
+        let r = Recognition {
+            words: vec![
+                w("fn", 0, 0, 1, 1),
+                w("main()", 30, 0, 1, 1),
+                w("{", 100, 0, 1, 1),
+                w("let", 40, 25, 2, 1),
+                w("x", 80, 25, 2, 1),
+                w("=", 100, 25, 2, 1),
+                w("1;", 120, 25, 2, 1),
+                w("}", 0, 75, 3, 1),
+            ],
+        };
+        assert_eq!(r.code(), "fn main() {\n    let x = 1;\n\n}");
+        assert!(r.looks_like_code());
+    }
+
+    #[test]
+    fn code_indentation_snaps_to_its_unit() {
+        assert_eq!(snap_indent(9, 4), 8);
+        assert_eq!(snap_indent(3, 4), 4);
+        assert_eq!(snap_indent(6, 4), 6);
+        assert_eq!(snap_indent(5, 0), 5);
+        // Words touching without a space stay together.
+        let r = Recognition {
+            words: vec![w("println!", 0, 0, 1, 1), w("(x);", 82, 0, 1, 1)],
+        };
+        assert_eq!(r.code(), "println!(x);");
+    }
+
+    #[test]
+    fn table_columns_come_from_gutters() {
+        let r = Recognition {
+            words: vec![
+                w("Name", 0, 0, 1, 1),
+                w("Qty", 200, 0, 2, 1),
+                w("Price", 300, 0, 3, 1),
+                w("Blue", 0, 30, 1, 2),
+                w("pen", 50, 30, 1, 2),
+                w("2", 200, 30, 2, 2),
+                w("1.50", 300, 30, 3, 2),
+                w("Paper", 0, 60, 1, 3),
+                w("10", 200, 60, 2, 3),
+                w("4.00", 300, 60, 3, 3),
+            ],
+        };
+        let t = r.table();
+        assert_eq!(
+            t,
+            vec![
+                vec!["Name", "Qty", "Price"],
+                vec!["Blue pen", "2", "1.50"],
+                vec!["Paper", "10", "4.00"],
+            ]
+        );
+        assert!(r.looks_like_table());
+        assert_eq!(to_tsv(&t).lines().nth(1), Some("Blue pen\t2\t1.50"));
+    }
+
+    #[test]
+    fn csv_quotes_when_needed() {
+        let rows = vec![vec![
+            "a,b".to_string(),
+            "say \"hi\"".to_string(),
+            "x".to_string(),
+        ]];
+        assert_eq!(to_csv(&rows), "\"a,b\",\"say \"\"hi\"\"\",x\r\n");
+    }
+
+    #[test]
+    fn empty_recognition_is_harmless() {
+        let r = Recognition::default();
+        assert_eq!(r.text(), "");
+        assert_eq!(r.code(), "");
+        assert!(r.table().is_empty());
+        assert!(!r.looks_like_code() && !r.looks_like_table());
+    }
+
+    #[test]
+    fn smart_actions_find_useful_things() {
+        let s = smart_actions(
+            "Mail hello@example.com or visit https://rustcast.app, docs at github.com/x. \
+             Call +91 98765 43210. Accent #0a84ff",
+        );
+        assert!(s.contains(&Smart::Email("hello@example.com".into())));
+        assert!(s.contains(&Smart::Link("https://rustcast.app".into())));
+        assert!(s.contains(&Smart::Link("https://github.com/x".into())));
+        assert!(s.contains(&Smart::Phone("+91 98765 43210".into())));
+        assert!(s.contains(&Smart::Color("#0A84FF".into())));
+        assert!(!s.iter().any(|x| matches!(x, Smart::Math(..))));
+
+        assert_eq!(
+            smart_actions("1,249.00 * 12"),
+            vec![Smart::Math("1,249.00 * 12".into(), "14988".into())]
+        );
+        assert!(smart_actions("version 1.2.3 and file.txt").is_empty());
+        assert!(smart_actions("2024-01-05").is_empty());
+        assert!(smart_actions("12 - 5").contains(&Smart::Math("12 - 5".into(), "7".into())));
     }
 
     #[test]
     fn dark_text_backgrounds_are_inverted_and_small_crops_upscaled() {
-        // White text on black → mean is dark → inverted to mostly white.
         let img = RgbaImage::from_pixel(40, 20, image::Rgba([0, 0, 0, 255]));
         let g = prepare(&img);
         assert_eq!(g.dimensions(), (40 * 3 + 2 * MARGIN, 20 * 3 + 2 * MARGIN));

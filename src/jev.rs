@@ -11,6 +11,9 @@
 //! jev close spotify                  jev show desktop
 //! jev record firefox                 jev record screen      jev stop recording
 //! jev tile left                      jev google rust iced tutorial
+//! jev screenshot firefox             jev screenshot in 5 seconds
+//! jev copy text from screen          jev copy code / table from screen
+//! jev pick colors                    jev compare screenshots
 //! jev open downloads and firefox     (several steps → "Run all")
 //! ```
 //!
@@ -146,6 +149,14 @@ pub enum Intent {
     RemoveFromRecording(String),
     Tile(TilePosition),
     Screenshot,
+    /// Screenshot one named window.
+    ScreenshotWindow(String),
+    /// A capture mode (`fullscreen`, `window`, `quick`, `area`, `ocr`,
+    /// `ocr-code`, `ocr-table`, `palette`, `compare`) after `delay` seconds.
+    Capture {
+        mode: String,
+        delay: u64,
+    },
     Clipboard,
     Settings,
     Help,
@@ -267,6 +278,245 @@ fn parse_tile(s: &str) -> Option<TilePosition> {
     })
 }
 
+/// Screenshot / OCR / colour / compare phrases.
+fn parse_capture(c: &str) -> Option<Intent> {
+    let capture = |mode: &str, delay: u64| {
+        Some(Intent::Capture {
+            mode: mode.to_string(),
+            delay,
+        })
+    };
+    let lower = c.to_lowercase();
+    let lower = lower.trim();
+
+    // Copy text / code / table from the screen (OCR).
+    for (verbs, mode) in [
+        (
+            &[
+                "copy text",
+                "copy the text",
+                "grab text",
+                "extract text",
+                "read text",
+                "get text",
+                "scan text",
+                "ocr",
+                "text from screen",
+                "recognize text",
+                "recognise text",
+            ][..],
+            "ocr",
+        ),
+        (
+            &[
+                "copy code",
+                "copy the code",
+                "grab code",
+                "extract code",
+                "code from screen",
+                "ocr code",
+            ][..],
+            "ocr-code",
+        ),
+        (
+            &[
+                "copy table",
+                "copy the table",
+                "grab table",
+                "extract table",
+                "table from screen",
+                "ocr table",
+                "copy spreadsheet",
+            ][..],
+            "ocr-table",
+        ),
+    ] {
+        if verbs.iter().any(|v| strip_ci(lower, v).is_some()) {
+            return capture(mode, 0);
+        }
+    }
+
+    // Colours.
+    if [
+        "pick colors",
+        "pick colours",
+        "pick a color",
+        "pick a colour",
+        "pick color",
+        "pick colour",
+        "color palette",
+        "colour palette",
+        "extract colors",
+        "extract colours",
+        "colors from screen",
+        "colours from screen",
+        "get colors",
+        "get colours",
+        "palette",
+        "eyedropper",
+        "color picker",
+        "colour picker",
+    ]
+    .iter()
+    .any(|v| strip_ci(lower, v).is_some())
+    {
+        return capture("palette", 0);
+    }
+
+    // Before / after.
+    if [
+        "compare",
+        "diff screenshots",
+        "screenshot diff",
+        "difference between",
+    ]
+    .iter()
+    .any(|v| strip_ci(lower, v).is_some())
+    {
+        return capture("compare", 0);
+    }
+
+    if let Some(rest) = first_prefix(lower, &["quick screenshot", "quick capture"]) {
+        let _ = rest;
+        return capture("quick", 0);
+    }
+
+    // "screenshot firefox", "screenshot full screen in 5 seconds", "take a
+    // screenshot of the terminal window", "capture the screen".
+    let rest = first_prefix(
+        c,
+        &[
+            "take a screenshot of",
+            "take screenshot of",
+            "take a screenshot",
+            "take screenshot",
+            "screenshot of",
+            "screen shot of",
+            "screenshot",
+            "screen shot",
+            "capture",
+        ],
+    )?;
+    let (rest, delay) = split_delay(rest);
+    let what = clean_object(rest);
+    let lw = what.to_lowercase();
+    let whole_screen = [
+        "screen",
+        "the screen",
+        "full screen",
+        "fullscreen",
+        "whole screen",
+        "entire screen",
+        "desktop",
+        "display",
+        "monitor",
+        "everything",
+    ];
+    if lw.is_empty()
+        || [
+            "area",
+            "region",
+            "selection",
+            "part of the screen",
+            "a region",
+        ]
+        .contains(&lw.as_str())
+    {
+        return if delay > 0 {
+            capture("area", delay)
+        } else {
+            Some(Intent::Screenshot)
+        };
+    }
+    if whole_screen.contains(&lw.as_str()) {
+        return capture("fullscreen", delay);
+    }
+    if [
+        "window",
+        "a window",
+        "this window",
+        "current window",
+        "active window",
+    ]
+    .contains(&lw.as_str())
+    {
+        return capture("window", delay);
+    }
+    Some(Intent::ScreenshotWindow(what))
+}
+
+/// Split a delay off: "full screen in 5 seconds" → ("full screen", 5),
+/// "with a 3 second delay" → ("", 3), "5s" → ("", 5).
+fn split_delay(s: &str) -> (&str, u64) {
+    let words: Vec<String> = s.split_whitespace().map(str::to_ascii_lowercase).collect();
+    let number = |w: &str| -> Option<u64> {
+        w.parse().ok().or(match w {
+            "one" => Some(1),
+            "two" => Some(2),
+            "three" => Some(3),
+            "five" => Some(5),
+            "ten" => Some(10),
+            _ => None,
+        })
+    };
+    for i in 0..words.len() {
+        let (n, unit) = if let Some(n) = number(&words[i]) {
+            let next = words.get(i + 1).map(String::as_str).unwrap_or("");
+            (n, next.starts_with("sec") || next == "s")
+        } else if let Some(n) = words[i]
+            .strip_suffix("secs")
+            .or_else(|| words[i].strip_suffix("sec"))
+            .or_else(|| words[i].strip_suffix('s'))
+            .and_then(|d| d.parse().ok())
+        {
+            (n, true)
+        } else {
+            continue;
+        };
+        if !unit {
+            continue;
+        }
+        let mut head = s[..nth_word_offset(s, i)].trim_end();
+        // Drop the connecting words left in front of the number.
+        loop {
+            let before = head;
+            for tail in [" in", " after", " with", " within", " wait", " a", " of"] {
+                if let Some(h) = strip_suffix_ci(head, tail) {
+                    head = h;
+                }
+            }
+            if ["in", "after", "with", "within", "wait", "a"]
+                .contains(&head.to_ascii_lowercase().as_str())
+            {
+                head = "";
+            }
+            if head == before {
+                break;
+            }
+        }
+        return (head.trim(), n.clamp(1, 60));
+    }
+    (s, 0)
+}
+
+/// Byte offset where the `n`-th whitespace-separated word of `s` starts.
+fn nth_word_offset(s: &str, n: usize) -> usize {
+    let mut count = 0;
+    let mut in_word = false;
+    for (i, c) in s.char_indices() {
+        if c.is_whitespace() {
+            in_word = false;
+        } else if !in_word {
+            if count == n {
+                return i;
+            }
+            count += 1;
+            in_word = true;
+        }
+    }
+    s.len()
+}
+
 /// Parse a single clause (no chaining).
 fn parse_clause(clause: &str) -> Option<Intent> {
     let c = clause
@@ -310,6 +560,10 @@ fn parse_clause(clause: &str) -> Option<Intent> {
             return Some(Intent::Tile(TilePosition::Maximize));
         }
         _ => {}
+    }
+
+    if let Some(intent) = parse_capture(c) {
+        return Some(intent);
     }
 
     // "add firefox to the recording", "bring terminal into recording"
@@ -536,6 +790,13 @@ fn starts_with_command(clause: &str) -> bool {
             "snap",
             "stop",
             "screenshot",
+            "capture",
+            "copy",
+            "pick",
+            "compare",
+            "ocr",
+            "extract",
+            "grab",
             "take",
             "navigate",
             "browse",
@@ -836,6 +1097,18 @@ fn help_rows() -> Vec<App> {
         (
             "jev show desktop · jev tile left · jev close spotify",
             "Manage windows",
+        ),
+        (
+            "jev screenshot firefox · jev screenshot in 5 seconds",
+            "Capture a window, the screen or an area, then annotate",
+        ),
+        (
+            "jev copy text from screen · jev copy code · jev copy table",
+            "Read text from anything on screen (OCR)",
+        ),
+        (
+            "jev pick colors · jev compare screenshots",
+            "Colour palettes and before / after views",
         ),
         (
             "jev open downloads and firefox",
@@ -1167,10 +1440,83 @@ fn resolve(intent: &Intent, world: &dyn World, file_query: &mut Option<String>) 
 
         Intent::Screenshot => rows.push(row(
             "Take a Screenshot".to_string(),
-            "select a region".to_string(),
+            "select an area or click a window".to_string(),
             icon(),
             AppCommand::Function(Function::Screenshot),
         )),
+
+        Intent::ScreenshotWindow(name) => {
+            if !world.wayland() {
+                rows.extend(
+                    window_matches(&world.windows(), name)
+                        .into_iter()
+                        .take(MAX_ROWS_PER_KIND)
+                        .map(|w| {
+                            row(
+                                format!("Screenshot {}", window_title(&w)),
+                                "brings it to the front, then annotate".to_string(),
+                                icon(),
+                                AppCommand::Function(Function::CaptureWindow(w.id)),
+                            )
+                        }),
+                );
+            }
+            if rows.is_empty() {
+                rows.push(row(
+                    "Capture a Window…".to_string(),
+                    if world.wayland() {
+                        "pick it in the system dialog".to_string()
+                    } else {
+                        format!("no open window called “{name}” — click one instead")
+                    },
+                    icon(),
+                    AppCommand::Function(Function::Capture {
+                        mode: "window".to_string(),
+                        delay: 0,
+                    }),
+                ));
+            }
+        }
+
+        Intent::Capture { mode, delay } => {
+            let what = match mode.as_str() {
+                "fullscreen" => "Capture Full Screen",
+                "window" => "Capture a Window",
+                "quick" => "Quick Capture",
+                "ocr" => "Copy Text from Screen",
+                "ocr-code" => "Copy Code from Screen",
+                "ocr-table" => "Copy Table from Screen",
+                "palette" => "Pick Colours from Screen",
+                "compare" => "Compare Last Two Screenshots",
+                _ => "Capture Area",
+            };
+            let title = if *delay > 0 {
+                format!(
+                    "{what} in {delay} Second{}",
+                    if *delay == 1 { "" } else { "s" }
+                )
+            } else {
+                what.to_string()
+            };
+            let detail = match mode.as_str() {
+                "ocr" | "ocr-code" | "ocr-table" => "select it — it is copied",
+                "palette" => "select an area — click a colour to copy it",
+                "compare" => "slider, side by side and differences",
+                "quick" => "select an area — copied instantly",
+                "window" => "click the window",
+                "fullscreen" => "the screen under the pointer",
+                _ => "select an area, then annotate",
+            };
+            rows.push(row(
+                title,
+                detail.to_string(),
+                icon(),
+                AppCommand::Function(Function::Capture {
+                    mode: mode.clone(),
+                    delay: *delay,
+                }),
+            ));
+        }
 
         Intent::Clipboard => rows.push(row(
             "Clipboard History".to_string(),
@@ -1321,6 +1667,89 @@ mod tests {
             minimized: false,
         }];
         (dir, FakeWorld { home, windows })
+    }
+
+    fn cap(mode: &str, delay: u64) -> Intent {
+        Intent::Capture {
+            mode: mode.to_string(),
+            delay,
+        }
+    }
+
+    #[test]
+    fn parses_screenshot_commands() {
+        assert_eq!(parse("screenshot"), vec![Intent::Screenshot]);
+        assert_eq!(parse("take a screenshot"), vec![Intent::Screenshot]);
+        assert_eq!(parse("screenshot full screen"), vec![cap("fullscreen", 0)]);
+        assert_eq!(
+            parse("capture the whole screen"),
+            vec![cap("fullscreen", 0)]
+        );
+        assert_eq!(parse("screenshot window"), vec![cap("window", 0)]);
+        assert_eq!(parse("screenshot in 5 seconds"), vec![cap("area", 5)]);
+        assert_eq!(
+            parse("take a screenshot with a 3 second delay"),
+            vec![cap("area", 3)]
+        );
+        assert_eq!(
+            parse("screenshot full screen after 10s"),
+            vec![cap("fullscreen", 10)]
+        );
+        assert_eq!(parse("quick screenshot"), vec![cap("quick", 0)]);
+        assert_eq!(
+            parse("screenshot firefox"),
+            vec![Intent::ScreenshotWindow("firefox".into())]
+        );
+        assert_eq!(
+            parse("take a screenshot of the terminal window"),
+            vec![Intent::ScreenshotWindow("terminal".into())]
+        );
+        assert_eq!(parse("screenshot area"), vec![Intent::Screenshot]);
+    }
+
+    #[test]
+    fn parses_ocr_colour_and_compare_commands() {
+        assert_eq!(parse("copy text from screen"), vec![cap("ocr", 0)]);
+        assert_eq!(parse("ocr"), vec![cap("ocr", 0)]);
+        assert_eq!(parse("extract text"), vec![cap("ocr", 0)]);
+        assert_eq!(parse("copy code from screen"), vec![cap("ocr-code", 0)]);
+        assert_eq!(parse("copy table"), vec![cap("ocr-table", 0)]);
+        assert_eq!(parse("pick colors"), vec![cap("palette", 0)]);
+        assert_eq!(parse("colour palette"), vec![cap("palette", 0)]);
+        assert_eq!(parse("compare screenshots"), vec![cap("compare", 0)]);
+        // Chains with other commands.
+        assert_eq!(
+            parse("open downloads and screenshot firefox"),
+            vec![
+                Intent::Open {
+                    what: "downloads".into(),
+                    within: None
+                },
+                Intent::ScreenshotWindow("firefox".into())
+            ]
+        );
+    }
+
+    #[test]
+    fn screenshot_rows_target_windows() {
+        let (_d, w) = world();
+        let rows = rows_for(&Intent::ScreenshotWindow("firefox".into()), &w);
+        assert_eq!(rows.len(), 1);
+        assert!(matches!(
+            rows[0].open_command,
+            AppCommand::Function(Function::CaptureWindow(42))
+        ));
+        // Unknown window: offer to click one instead.
+        let rows = rows_for(&Intent::ScreenshotWindow("nothing-here".into()), &w);
+        assert_eq!(rows.len(), 1);
+        assert!(matches!(
+            &rows[0].open_command,
+            AppCommand::Function(Function::Capture { mode, .. }) if mode == "window"
+        ));
+        let rows = rows_for(&cap("ocr-table", 0), &w);
+        assert_eq!(rows[0].display_name, "Copy Table from Screen");
+        let rows = rows_for(&cap("area", 5), &w);
+        assert_eq!(rows[0].display_name, "Capture Area in 5 Seconds");
     }
 
     #[test]

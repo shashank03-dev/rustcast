@@ -340,6 +340,10 @@ pub struct ScreenshotConfig {
     pub enter_action: String,
     pub show_magnifier: bool,
     pub window_snap: bool,
+    /// Floating thumbnail after each capture.
+    pub show_thumbnail: bool,
+    /// How long the thumbnail stays (0 = until closed). Hovering keeps it.
+    pub thumbnail_seconds: u32,
     pub ocr_languages: String,
     pub translate_to: String,
 }
@@ -353,6 +357,8 @@ impl Default for ScreenshotConfig {
             enter_action: "copy".to_string(),
             show_magnifier: true,
             window_snap: true,
+            show_thumbnail: true,
+            thumbnail_seconds: 10,
             ocr_languages: "eng".to_string(),
             translate_to: String::new(),
         }

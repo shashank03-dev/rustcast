@@ -20,7 +20,17 @@ use crate::clipboard::ClipBoardContentType;
 use crate::persist::screenshots_dir;
 
 /// Capture modes accepted by `rustcast://capture/<mode>` and the launcher.
-pub const CAPTURE_MODES: [&str; 5] = ["area", "window", "fullscreen", "quick", "ocr"];
+pub const CAPTURE_MODES: [&str; 9] = [
+    "area",
+    "window",
+    "fullscreen",
+    "quick",
+    "ocr",
+    "ocr-code",
+    "ocr-table",
+    "palette",
+    "compare",
+];
 
 /// Directories watched for new screenshots.
 fn watch_dirs() -> Vec<PathBuf> {
@@ -58,6 +68,13 @@ fn is_image_file(path: &std::path::Path) -> bool {
                 .as_deref(),
             Some("png") | Some("jpg") | Some("jpeg") | Some("webp")
         )
+}
+
+/// Files RustCast writes itself (captures, comparisons).
+fn written_by_rustcast(path: &std::path::Path) -> bool {
+    path.file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .is_some_and(|n| n.starts_with("rustcast-") || n.starts_with("compare-"))
 }
 
 fn load_image_data(path: &std::path::Path) -> Option<ImageData<'static>> {
@@ -116,7 +133,11 @@ pub fn watch_subscription() -> impl futures::Stream<Item = Message> {
                     }
 
                     log::info!("New screenshot detected: {}", path.display());
-                    crate::platform::linux::overlay::show_thumbnail(path.clone());
+                    // RustCast's own captures show their thumbnail themselves
+                    // (instantly); only other tools' screenshots get one here.
+                    if !written_by_rustcast(&path) {
+                        crate::platform::linux::overlay::show_thumbnail(path.clone());
+                    }
 
                     if let Some(data) = load_image_data(&path) {
                         output
@@ -130,4 +151,30 @@ pub fn watch_subscription() -> impl futures::Stream<Item = Message> {
             }
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn watcher_ignores_partial_and_hidden_files() {
+        assert!(is_image_file(Path::new("/x/Screenshot from 2024.png")));
+        assert!(is_image_file(Path::new("/x/shot.WEBP")));
+        assert!(!is_image_file(Path::new("/x/.rustcast-1.png.part")));
+        assert!(!is_image_file(Path::new("/x/.rustcast-grab-12.png")));
+        assert!(!is_image_file(Path::new("/x/notes.txt")));
+    }
+
+    #[test]
+    fn own_captures_are_recognised() {
+        assert!(written_by_rustcast(Path::new(
+            "/x/rustcast-1791106196296.png"
+        )));
+        assert!(written_by_rustcast(Path::new("/x/compare-1.png")));
+        assert!(!written_by_rustcast(Path::new(
+            "/x/Screenshot from 2024.png"
+        )));
+    }
 }

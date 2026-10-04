@@ -10,8 +10,25 @@
 use std::path::PathBuf;
 use std::process::Command;
 
-/// Show the screenshot thumbnail for `path` by spawning the overlay subprocess.
+/// True when a thumbnail for `path` is already on screen.
+pub fn is_showing(path: &std::path::Path) -> bool {
+    let needle = format!("--overlay\0{}", path.display());
+    std::fs::read_dir("/proc")
+        .map(|d| {
+            d.flatten().any(|e| {
+                std::fs::read(e.path().join("cmdline"))
+                    .is_ok_and(|c| String::from_utf8_lossy(&c).contains(&needle))
+            })
+        })
+        .unwrap_or(false)
+}
+
+/// Show the screenshot thumbnail for `path` by spawning the overlay subprocess
+/// (unless thumbnails are turned off or this one is already showing).
 pub fn show_thumbnail(path: PathBuf) {
+    if !crate::snap::load_config().screenshot.show_thumbnail || is_showing(&path) {
+        return;
+    }
     let Ok(exe) = std::env::current_exe() else {
         log::warn!("cannot locate own exe to spawn overlay");
         return;

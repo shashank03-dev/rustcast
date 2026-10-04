@@ -1080,6 +1080,11 @@ fn update_inner(tile: &mut Tile, message: Message) -> Task<Message> {
                 SetConfigFields::ScreenshotHotkey(hk) => final_config.screenshot_hotkey = hk,
                 SetConfigFields::OcrHotkey(hk) => final_config.ocr_hotkey = hk,
                 SetConfigFields::OcrLanguages(l) => final_config.screenshot.ocr_languages = l,
+                SetConfigFields::ThumbnailSeconds(secs) => {
+                    let digits: String = secs.chars().filter(char::is_ascii_digit).collect();
+                    final_config.screenshot.thumbnail_seconds =
+                        digits.parse::<u32>().unwrap_or(0).min(3600);
+                }
                 SetConfigFields::ClipboardHistory(cbhist) => final_config.cbhist = cbhist,
                 SetConfigFields::Modes(Editable::Create((key, value))) => {
                     final_config.modes.insert(key, value);
@@ -1252,6 +1257,9 @@ fn update_inner(tile: &mut Tile, message: Message) -> Task<Message> {
                     tile.config.screenshot_hotkey = default.screenshot_hotkey
                 }
                 ResetField::OcrHotkey => tile.config.ocr_hotkey = default.ocr_hotkey,
+                ResetField::ThumbnailSeconds => {
+                    tile.config.screenshot.thumbnail_seconds = default.screenshot.thumbnail_seconds
+                }
                 ResetField::OcrLanguages => {
                     tile.config.screenshot.ocr_languages = default.screenshot.ocr_languages
                 }

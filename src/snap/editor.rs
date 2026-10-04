@@ -23,6 +23,8 @@ use image::RgbaImage;
 
 use super::beautify::{self, rounded_rect};
 use super::grab::{self, Frame, bgra_to_rgba};
+use super::ocr::Layout;
+use super::ui::{self, Icon, Palette};
 use crate::config::ScreenshotConfig;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,6 +37,8 @@ pub enum Flavor {
     Quick,
     /// Select a region, then read its text.
     Ocr,
+    /// Select a region, then show its colour palette.
+    Palette,
     /// The whole monitor under the pointer, no UI.
     Fullscreen,
     /// Annotate an existing image.
@@ -321,6 +325,7 @@ enum Btn {
     Undo,
     Redo,
     Ocr,
+    Palette,
     Pin,
     Beautify,
     Save,
@@ -343,6 +348,7 @@ impl Btn {
             Btn::Undo => "Undo  (Ctrl+Z)".into(),
             Btn::Redo => "Redo  (Ctrl+Shift+Z)".into(),
             Btn::Ocr => "Copy text in selection — OCR  (Ctrl+T)".into(),
+            Btn::Palette => "Colour palette of selection  (Ctrl+K)".into(),
             Btn::Pin => "Pin to screen  (Ctrl+P)".into(),
             Btn::Beautify => match ed.beautify {
                 None => "Beautify: background & shadow  (Ctrl+B)".into(),
@@ -400,6 +406,7 @@ enum Kind {
     SaveAs,
     Pin,
     Ocr,
+    Palette,
 }
 
 struct Outcome {
@@ -442,6 +449,9 @@ struct Editor {
     cursor: &'static str,
     outcome: Option<Outcome>,
     close: bool,
+    pal: Palette,
+    /// Forced OCR layout (Text / Code / Table), `None` = automatic.
+    ocr_layout: Option<Layout>,
 }
 
 const BTN: f64 = 30.0;
@@ -484,6 +494,23 @@ impl Editor {
             cursor: "crosshair",
             outcome: None,
             close: false,
+            pal: Palette::load(),
+            ocr_layout: None,
+        }
+    }
+
+    /// Flavors that finish as soon as a region is chosen.
+    fn instant(&self) -> bool {
+        matches!(self.flavor, Flavor::Quick | Flavor::Ocr | Flavor::Palette)
+    }
+
+    /// What an instant flavor does with its region.
+    fn instant_kind(&self) -> Kind {
+        match self.flavor {
+            Flavor::Ocr => Kind::Ocr,
+            Flavor::Palette => Kind::Palette,
+            _ if self.cfg.enter_action.eq_ignore_ascii_case("save") => Kind::Save,
+            _ => Kind::Copy,
         }
     }
 
@@ -513,9 +540,7 @@ impl Editor {
     }
 
     fn show_toolbars(&self) -> bool {
-        self.sel.is_some()
-            && !matches!(self.drag, Drag::NewSel { .. })
-            && !matches!(self.flavor, Flavor::Quick | Flavor::Ocr)
+        self.sel.is_some() && !matches!(self.drag, Drag::NewSel { .. }) && !self.instant()
     }
 
     fn toast(&mut self, msg: impl Into<String>) {
@@ -636,7 +661,7 @@ impl Editor {
             return;
         }
         let p = self.to_img(w);
-        if self.sel.is_none() || matches!(self.flavor, Flavor::Quick | Flavor::Ocr) {
+        if self.sel.is_none() || self.instant() {
             self.drag = Drag::NewSel {
                 start: p,
                 moved: false,
@@ -817,7 +842,7 @@ impl Editor {
                     let target = self.window_at(p).unwrap_or(self.whole());
                     self.sel = Some(target.clamp_to(self.iw, self.ih));
                 }
-                matches!(self.flavor, Flavor::Quick | Flavor::Ocr)
+                self.instant()
             }
             Drag::Draw { mut ann, .. } => {
                 if !ann.degenerate() {
@@ -864,6 +889,7 @@ impl Editor {
             Btn::Undo => self.do_undo(),
             Btn::Redo => self.do_redo(),
             Btn::Ocr => self.finish(Kind::Ocr),
+            Btn::Palette => self.finish(Kind::Palette),
             Btn::Pin => self.finish(Kind::Pin),
             Btn::Beautify => self.cycle_beautify(),
             Btn::Save => self.finish(Kind::Save),
@@ -947,7 +973,7 @@ impl Editor {
             return;
         };
         // OCR reads the screen itself; annotations would only confuse it.
-        let img = if kind == Kind::Ocr {
+        let img = if matches!(kind, Kind::Ocr | Kind::Palette) {
             crop_surface(&self.bg, sel)
         } else {
             self.export(sel).map(|img| match self.beautify {
@@ -1070,6 +1096,7 @@ impl Editor {
                 k::z => self.do_undo(),
                 k::y => self.do_redo(),
                 k::t => self.finish(Kind::Ocr),
+                k::k => self.finish(Kind::Palette),
                 k::p => self.finish(Kind::Pin),
                 k::b => self.cycle_beautify(),
                 _ => return false,
@@ -1080,12 +1107,8 @@ impl Editor {
                 };
                 if c == 'f' && self.flavor != Flavor::Edit {
                     self.sel = Some(self.whole());
-                    if matches!(self.flavor, Flavor::Quick | Flavor::Ocr) {
-                        self.finish(if self.flavor == Flavor::Ocr {
-                            Kind::Ocr
-                        } else {
-                            Kind::Copy
-                        });
+                    if self.instant() {
+                        self.finish(self.instant_kind());
                     }
                 } else if let Some(d) = c.to_digit(10).filter(|d| (1..=8).contains(d)) {
                     self.set_color(d as usize - 1);
@@ -1165,7 +1188,7 @@ impl Editor {
         } else if let Some(win) = hover_win {
             let r = self.rect_to_win(win);
             cr.rectangle(r.x + 1.0, r.y + 1.0, r.w - 2.0, r.h - 2.0);
-            cr.set_source_rgba(0.25, 0.6, 1.0, 0.95);
+            ui::set(cr, self.pal.accent);
             cr.set_line_width(2.5);
             let _ = cr.stroke();
         }
@@ -1185,19 +1208,24 @@ impl Editor {
 
         if self.sel.is_none() && !matches!(self.drag, Drag::NewSel { moved: true, .. }) {
             let hint = match self.flavor {
-                Flavor::Ocr => "Select the text to copy  ·  Esc to cancel",
+                Flavor::Ocr => match self.ocr_layout {
+                    Some(Layout::Code) => "Select the code to copy  ·  Esc to cancel",
+                    Some(Layout::Table) => "Select the table to copy  ·  Esc to cancel",
+                    _ => "Select the text to copy  ·  Esc to cancel",
+                },
+                Flavor::Palette => "Select an area to pick its colours  ·  Esc to cancel",
                 Flavor::Window => "Click a window  ·  drag to select an area  ·  Esc to cancel",
                 _ if self.windows.is_empty() || !self.snap => {
                     "Drag to select  ·  click for the whole screen  ·  Esc to cancel"
                 }
                 _ => "Drag to select  ·  click a window  ·  F full screen  ·  Esc to cancel",
             };
-            pill(cr, hint, aw / 2.0, 36.0, 14.0, true);
+            ui::pill(cr, &self.pal, hint, aw / 2.0, 36.0, 14.0, true);
         }
 
         if let Some((msg, at)) = &self.toast {
             if at.elapsed() < Duration::from_millis(1800) {
-                pill(cr, msg, aw / 2.0, 36.0, 14.0, true);
+                ui::pill(cr, &self.pal, msg, aw / 2.0, 36.0, 14.0, true);
             } else {
                 self.toast = None;
             }
@@ -1209,8 +1237,9 @@ impl Editor {
         {
             let text = btn.tooltip(self);
             let (bx, by) = (w.0, w.1 - 28.0);
-            pill(
+            ui::pill(
                 cr,
+                &self.pal,
                 &text,
                 bx.clamp(120.0, aw - 120.0),
                 by.max(16.0),
@@ -1245,8 +1274,8 @@ impl Editor {
 
         let label = format!("{} × {}", sel.w as i64, sel.h as i64);
         let y = if r.y > 30.0 { r.y - 16.0 } else { r.y + 16.0 };
-        let (tw, _) = text_size(cr, &label, 12.0);
-        pill(cr, &label, r.x + tw / 2.0 + 10.0, y, 12.0, false);
+        let (tw, _) = ui::text_size(cr, &self.pal, &label, 12.0, false);
+        ui::pill(cr, &self.pal, &label, r.x + tw / 2.0 + 10.0, y, 12.0, false);
     }
 
     fn draw_crosshair(&self, cr: &Context, w: P, aw: f64, ah: f64) {
@@ -1302,7 +1331,15 @@ impl Editor {
             .map(|(r, g, b)| format!("#{r:02X}{g:02X}{b:02X}"))
             .unwrap_or_default();
         let label = format!("{}, {}   {color}", px.max(0.0), py.max(0.0));
-        pill(cr, &label, cx, cy + SIZE / 2.0 + 16.0, 11.0, false);
+        ui::pill(
+            cr,
+            &self.pal,
+            &label,
+            cx,
+            cy + SIZE / 2.0 + 16.0,
+            11.0,
+            false,
+        );
     }
 
     fn draw_toolbars(&mut self, cr: &Context, aw: f64, ah: f64) {
@@ -1331,7 +1368,7 @@ impl Editor {
             y = r.bottom() - bar_h - 10.0;
         }
         let x = (r.x + r.w / 2.0 - bar_w / 2.0).clamp(6.0, (aw - bar_w - 6.0).max(6.0));
-        bar_background(cr, R::new(x, y, bar_w, bar_h));
+        bar_background(cr, &self.pal, R::new(x, y, bar_w, bar_h));
         let mut bx = x + BAR_PAD;
         for (i, btn) in items.iter().enumerate() {
             if seps.contains(&i) {
@@ -1351,6 +1388,7 @@ impl Editor {
             Btn::Undo,
             Btn::Redo,
             Btn::Ocr,
+            Btn::Palette,
             Btn::Pin,
             Btn::Beautify,
             Btn::Save,
@@ -1367,7 +1405,7 @@ impl Editor {
             cx = r.right() - col_w - 10.0;
         }
         let cy = (r.bottom() - col_h).clamp(6.0, (ah - col_h - 6.0).max(6.0));
-        bar_background(cr, R::new(cx, cy, col_w, col_h));
+        bar_background(cr, &self.pal, R::new(cx, cy, col_w, col_h));
         for (i, btn) in actions.iter().enumerate() {
             let rect = R::new(cx + BAR_PAD, cy + BAR_PAD + i as f64 * BTN, BTN, BTN);
             self.draw_button(cr, rect, *btn);
@@ -1387,9 +1425,9 @@ impl Editor {
         if active || hovered {
             rounded_rect(cr, r.x + 2.0, r.y + 2.0, r.w - 4.0, r.h - 4.0, 6.0);
             if active {
-                cr.set_source_rgba(0.04, 0.52, 1.0, 0.95);
+                ui::set(cr, self.pal.accent);
             } else {
-                cr.set_source_rgba(1.0, 1.0, 1.0, 0.12);
+                ui::set(cr, self.pal.fill(ui::SECONDARY_FILL));
             }
             let _ = cr.fill();
         }
@@ -1398,9 +1436,16 @@ impl Editor {
             Btn::Redo => self.redo.is_empty(),
             _ => false,
         };
-        let alpha = if disabled { 0.35 } else { 0.95 };
         let (cx, cy) = (r.x + r.w / 2.0, r.y + r.h / 2.0);
-        cr.set_source_rgba(1.0, 1.0, 1.0, alpha);
+        if active {
+            cr.set_source_rgb(1.0, 1.0, 1.0);
+        } else {
+            ui::set(
+                cr,
+                self.pal
+                    .label(if disabled { ui::TERTIARY } else { ui::PRIMARY }),
+            );
+        }
         cr.set_line_width(1.6);
         cr.set_line_cap(cairo::LineCap::Round);
         cr.set_line_join(cairo::LineJoin::Round);
@@ -1473,7 +1518,7 @@ impl Editor {
         if live && let Some(ann) = self.selected.and_then(|i| self.anns.get(i)) {
             let b = ann.bounds(self.k).inflate(ann.width / 2.0 + 4.0 * self.k);
             cr.set_dash(&[5.0 * self.k, 4.0 * self.k], 0.0);
-            cr.set_source_rgba(0.04, 0.52, 1.0, 1.0);
+            ui::set(cr, self.pal.accent);
             cr.set_line_width(1.5 * self.k);
             cr.rectangle(b.x, b.y, b.w, b.h);
             let _ = cr.stroke();
@@ -1753,56 +1798,18 @@ fn crop_surface(bg: &ImageSurface, r: R) -> Option<RgbaImage> {
 
 // ── Chrome ──────────────────────────────────────────────────────────────────
 
-fn text_size(cr: &Context, text: &str, size: f64) -> P {
-    let layout = pangocairo::functions::create_layout(cr);
-    let mut font = gtk::pango::FontDescription::from_string("Sans");
-    font.set_absolute_size(size * f64::from(gtk::pango::SCALE));
-    layout.set_font_description(Some(&font));
-    layout.set_text(text);
-    let (w, h) = layout.pixel_size();
-    (f64::from(w), f64::from(h))
-}
-
-/// A rounded dark label centred on `(cx, cy)`.
-fn pill(cr: &Context, text: &str, cx: f64, cy: f64, size: f64, strong: bool) {
-    let layout = pangocairo::functions::create_layout(cr);
-    let mut font = gtk::pango::FontDescription::from_string("Sans");
-    font.set_absolute_size(size * f64::from(gtk::pango::SCALE));
-    layout.set_font_description(Some(&font));
-    layout.set_text(text);
-    let (w, h) = layout.pixel_size();
-    let (w, h) = (f64::from(w), f64::from(h));
-    let (px, py) = (
-        if strong { 14.0 } else { 8.0 },
-        if strong { 8.0 } else { 4.0 },
-    );
-    rounded_rect(
-        cr,
-        cx - w / 2.0 - px,
-        cy - h / 2.0 - py,
-        w + 2.0 * px,
-        h + 2.0 * py,
-        (h + 2.0 * py) / 2.0,
-    );
-    cr.set_source_rgba(0.09, 0.09, 0.1, if strong { 0.88 } else { 0.75 });
-    let _ = cr.fill();
-    cr.move_to(cx - w / 2.0, cy - h / 2.0);
-    cr.set_source_rgb(1.0, 1.0, 1.0);
-    pangocairo::functions::show_layout(cr, &layout);
-}
-
-fn bar_background(cr: &Context, r: R) {
-    rounded_rect(cr, r.x, r.y, r.w, r.h, 10.0);
-    cr.set_source_rgba(0.11, 0.11, 0.12, 0.94);
+fn bar_background(cr: &Context, p: &Palette, r: R) {
+    rounded_rect(cr, r.x, r.y, r.w, r.h, 12.0);
+    ui::set(cr, p.hud);
     let _ = cr.fill_preserve();
-    cr.set_source_rgba(1.0, 1.0, 1.0, 0.1);
+    ui::set(cr, p.rim);
     cr.set_line_width(1.0);
     let _ = cr.stroke();
 }
 
 /// Toolbar icons, drawn as small vector glyphs centred on `(cx, cy)`.
 fn draw_icon(cr: &Context, btn: Btn, cx: f64, cy: f64, ed: &Editor) {
-    use std::f64::consts::{PI, TAU};
+    use std::f64::consts::TAU;
     let stroke = || {
         let _ = cr.stroke();
     };
@@ -1932,85 +1939,29 @@ fn draw_icon(cr: &Context, btn: Btn, cx: f64, cy: f64, ed: &Editor) {
             }
         }
         Btn::Censor => glyph(cr, &ed.censor.label()[..1], cx, cy, 13.0),
-        Btn::Undo | Btn::Redo => {
-            let dir = if btn == Btn::Undo { 1.0 } else { -1.0 };
-            let _ = cr.save();
-            cr.translate(cx, cy);
-            cr.scale(dir, 1.0);
-            cr.arc(1.0, 1.0, 6.0, PI, PI * 2.6);
-            stroke();
-            cr.move_to(-8.5, -2.0);
-            cr.line_to(-5.0, 2.5);
-            cr.line_to(-1.5, -2.0);
-            stroke();
-            let _ = cr.restore();
-        }
-        Btn::Ocr => {
-            for (sx, sy) in [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)] {
-                cr.move_to(cx + sx * 8.0, cy + sy * 4.0);
-                cr.line_to(cx + sx * 8.0, cy + sy * 8.0);
-                cr.line_to(cx + sx * 4.0, cy + sy * 8.0);
-            }
-            stroke();
-            glyph(cr, "T", cx, cy, 11.0);
-        }
-        Btn::Pin => {
-            cr.arc(cx, cy - 3.5, 4.5, 0.0, TAU);
-            stroke();
-            cr.move_to(cx, cy + 1.0);
-            cr.line_to(cx, cy + 9.0);
-            stroke();
-        }
-        Btn::Beautify => {
-            for i in 0..8 {
-                let a = f64::from(i) * PI / 4.0;
-                let r = if i % 2 == 0 { 8.5 } else { 3.0 };
-                let (x, y) = (cx + r * a.cos(), cy + r * a.sin());
-                if i == 0 {
-                    cr.move_to(x, y);
-                } else {
-                    cr.line_to(x, y);
-                }
-            }
-            cr.close_path();
-            let _ = cr.fill();
-        }
-        Btn::Save => {
-            cr.move_to(cx, cy - 8.0);
-            cr.line_to(cx, cy + 3.0);
-            cr.move_to(cx - 4.5, cy - 1.5);
-            cr.line_to(cx, cy + 3.0);
-            cr.line_to(cx + 4.5, cy - 1.5);
-            cr.move_to(cx - 8.0, cy + 3.0);
-            cr.line_to(cx - 8.0, cy + 8.0);
-            cr.line_to(cx + 8.0, cy + 8.0);
-            cr.line_to(cx + 8.0, cy + 3.0);
-            stroke();
-        }
-        Btn::Copy => {
-            rounded_rect(cr, cx - 7.0, cy - 4.0, 11.0, 12.0, 2.0);
-            stroke();
-            cr.move_to(cx - 3.0, cy - 6.5);
-            cr.line_to(cx - 3.0, cy - 8.0);
-            cr.line_to(cx + 8.0, cy - 8.0);
-            cr.line_to(cx + 8.0, cy + 4.0);
-            cr.line_to(cx + 6.5, cy + 4.0);
-            stroke();
-        }
-        Btn::Close => {
-            cr.move_to(cx - 6.0, cy - 6.0);
-            cr.line_to(cx + 6.0, cy + 6.0);
-            cr.move_to(cx + 6.0, cy - 6.0);
-            cr.line_to(cx - 6.0, cy + 6.0);
-            stroke();
-        }
+        Btn::Undo => ui::icon(cr, Icon::Undo, cx, cy),
+        Btn::Redo => ui::icon(cr, Icon::Redo, cx, cy),
+        Btn::Ocr => ui::icon(cr, Icon::Text, cx, cy),
+        Btn::Palette => ui::icon(cr, Icon::Palette, cx, cy),
+        Btn::Pin => ui::icon(cr, Icon::Pin, cx, cy),
+        Btn::Beautify => ui::icon(cr, Icon::Beautify, cx, cy),
+        Btn::Save => ui::icon(cr, Icon::Save, cx, cy),
+        Btn::Copy => ui::icon(cr, Icon::Copy, cx, cy),
+        Btn::Close => ui::icon(cr, Icon::Close, cx, cy),
     }
+}
+
+thread_local! {
+    static GLYPH_FONT: String = Palette::load().font;
 }
 
 fn glyph(cr: &Context, text: &str, cx: f64, cy: f64, size: f64) {
     let layout = pangocairo::functions::create_layout(cr);
-    let mut font = gtk::pango::FontDescription::from_string("Sans Bold");
-    font.set_absolute_size(size * f64::from(gtk::pango::SCALE));
+    let font = GLYPH_FONT.with(|f| {
+        let mut d = gtk::pango::FontDescription::from_string(&format!("{} Bold", f));
+        d.set_absolute_size(size * f64::from(gtk::pango::SCALE));
+        d
+    });
     layout.set_font_description(Some(&font));
     layout.set_text(text);
     let (_, logical) = layout.pixel_extents();
@@ -2025,18 +1976,64 @@ fn glyph(cr: &Context, text: &str, cx: f64, cy: f64, size: f64) {
 
 /// Capture modes: freeze the screen and run the overlay on the monitor under
 /// the pointer.
-pub fn run_capture(flavor: Flavor, cfg: ScreenshotConfig) {
+///
+/// `window_id` (X11) captures that window: it is raised first and the
+/// overlay opens with it already selected, ready to annotate.
+pub fn run_capture(
+    flavor: Flavor,
+    cfg: ScreenshotConfig,
+    ocr_layout: Option<Layout>,
+    window_id: Option<u32>,
+) {
+    let wayland = crate::recorder::portal::is_wayland_session();
+    if wayland && flavor == Flavor::Window {
+        // Wayland hides window positions from apps; the desktop's own picker
+        // (via the portal) lets the user choose the window instead.
+        let _guard = super::CaptureGuard::begin();
+        match grab::portal_interactive() {
+            Ok(frame) => {
+                drop(_guard);
+                if let Some(bg) = frame_surface(frame) {
+                    run_editor_window(bg, "Annotate — Window", cfg);
+                }
+            }
+            Err(e) => log::info!("window capture cancelled: {e}"),
+        }
+        return;
+    }
     let Some(display) = gdk::Display::default() else {
         return;
     };
-    let pointer = display
-        .default_seat()
-        .and_then(|s| s.pointer())
-        .map(|p| {
-            let (_, x, y) = p.position();
-            (x, y)
-        })
-        .unwrap_or((0, 0));
+
+    // Bring the requested window up first, then capture its monitor.
+    let target = window_id.and_then(|xid| {
+        crate::platform::linux::x11::focus_window(xid);
+        crate::platform::linux::x11::raise_window(xid);
+        std::thread::sleep(Duration::from_millis(450));
+        grab::window_rect(xid)
+    });
+    if window_id.is_some() && target.is_none() {
+        super::error_dialog("That window is gone or not visible any more.");
+        return;
+    }
+    let pointer = match target {
+        Some((x, y, w, h)) => {
+            let sf = display
+                .monitor(0)
+                .map(|m| m.scale_factor())
+                .unwrap_or(1)
+                .max(1);
+            ((x + w / 2) / sf, (y + h / 2) / sf)
+        }
+        None => display
+            .default_seat()
+            .and_then(|s| s.pointer())
+            .map(|p| {
+                let (_, x, y) = p.position();
+                (x, y)
+            })
+            .unwrap_or((0, 0)),
+    };
     let Some(monitor) = display
         .monitor_at_point(pointer.0, pointer.1)
         .or_else(|| display.primary_monitor())
@@ -2058,10 +2055,14 @@ pub fn run_capture(flavor: Flavor, cfg: ScreenshotConfig) {
         }
     }
 
-    let frame = match grab::grab_desktop() {
+    // Thumbnails stay hidden for the whole capture session (they float above
+    // everything, the overlay included).
+    let session = super::CaptureGuard::begin();
+    let frame = grab::grab_desktop();
+    let frame = match frame {
         Ok(f) => f,
         Err(e) => {
-            error_dialog(&e);
+            super::error_dialog(&e);
             return;
         }
     };
@@ -2077,21 +2078,20 @@ pub fn run_capture(flavor: Flavor, cfg: ScreenshotConfig) {
     );
     let k = f64::from(frame.width) / f64::from(geo.width());
 
-    let windows: Vec<R> = if crate::recorder::portal::is_wayland_session() {
+    let to_image = |(x, y, w, h): (i32, i32, i32, i32)| {
+        R::new(
+            (f64::from(x) - f64::from(bx0) * sf) * rx - crop_x,
+            (f64::from(y) - f64::from(by0) * sf) * ry - crop_y,
+            f64::from(w) * rx,
+            f64::from(h) * ry,
+        )
+    };
+    let windows: Vec<R> = if wayland {
         Vec::new()
     } else {
-        grab::visible_windows()
-            .into_iter()
-            .map(|(x, y, w, h)| {
-                R::new(
-                    (f64::from(x) - f64::from(bx0) * sf) * rx - crop_x,
-                    (f64::from(y) - f64::from(by0) * sf) * ry - crop_y,
-                    f64::from(w) * rx,
-                    f64::from(h) * ry,
-                )
-            })
-            .collect()
+        grab::visible_windows().into_iter().map(to_image).collect()
     };
+    let preselect = target.map(to_image);
 
     let Some(bg) = frame_surface(frame) else {
         return;
@@ -2108,14 +2108,20 @@ pub fn run_capture(flavor: Flavor, cfg: ScreenshotConfig) {
         };
         let outcome = ed.export(whole).map(|img| Outcome { kind, img });
         drop(ed);
+        drop(session);
         if let Some(o) = outcome {
-            perform(o, cfg);
+            perform(o, cfg, None);
         }
         return;
     }
 
     let mut ed = Editor::new(flavor, cfg.clone(), bg, k);
     ed.windows = windows;
+    ed.ocr_layout = ocr_layout;
+    if let Some(r) = preselect {
+        let (iw, ih) = (ed.iw, ed.ih);
+        ed.sel = Some(r.clamp_to(iw, ih)).filter(|r| r.w >= 2.0 && r.h >= 2.0);
+    }
 
     let window = gtk::Window::new(gtk::WindowType::Toplevel);
     window.set_title("RustCast Capture");
@@ -2128,8 +2134,9 @@ pub fn run_capture(flavor: Flavor, cfg: ScreenshotConfig) {
     window.fullscreen();
 
     let outcome = run_window(window, ed);
+    drop(session);
     if let Some(o) = outcome {
-        perform(o, cfg);
+        perform(o, cfg, ocr_layout);
     }
 }
 
@@ -2138,13 +2145,24 @@ pub fn run_file(path: &Path, cfg: ScreenshotConfig) {
     let img = match image::open(path) {
         Ok(i) => i.into_rgba8(),
         Err(e) => {
-            error_dialog(&format!("Cannot open {}: {e}", path.display()));
+            super::error_dialog(&format!("Cannot open {}: {e}", path.display()));
             return;
         }
     };
     let Some(bg) = frame_surface(Frame::from_rgba(img)) else {
         return;
     };
+    let title = format!(
+        "Annotate — {}",
+        path.file_name()
+            .map(|n| n.to_string_lossy())
+            .unwrap_or_default()
+    );
+    run_editor_window(bg, &title, cfg);
+}
+
+/// The editor in a normal, resizable window around an image.
+fn run_editor_window(bg: ImageSurface, title: &str, cfg: ScreenshotConfig) {
     let mut ed = Editor::new(Flavor::Edit, cfg.clone(), bg, 1.0);
     ed.sel = Some(ed.whole());
     ed.snap = false;
@@ -2161,18 +2179,20 @@ pub fn run_file(path: &Path, cfg: ScreenshotConfig) {
     let w = (ed.iw + 144.0).clamp(760.0, mw * 0.9);
     let h = (ed.ih + 128.0).clamp(520.0, mh * 0.9);
 
+    ui::install_css();
     let window = gtk::Window::new(gtk::WindowType::Toplevel);
-    window.set_title(&format!(
-        "Annotate — {}",
-        path.file_name()
-            .map(|n| n.to_string_lossy())
-            .unwrap_or_default()
-    ));
+    window.style_context().add_class("rustcast");
+    let header = gtk::HeaderBar::new();
+    header.set_title(Some(title));
+    header.set_show_close_button(true);
+    header.set_decoration_layout(Some(":close"));
+    window.set_titlebar(Some(&header));
+    window.set_title(title);
     window.set_default_size(w as i32, h as i32);
     window.set_position(gtk::WindowPosition::Center);
 
     if let Some(o) = run_window(window, ed) {
-        perform(o, cfg);
+        perform(o, cfg, None);
     }
 }
 
@@ -2248,13 +2268,8 @@ fn run_window(window: gtk::Window, ed: Editor) -> Option<Outcome> {
             };
             if finish {
                 let mut e = ed.borrow_mut();
-                if e.flavor == Flavor::Ocr {
-                    e.finish(Kind::Ocr);
-                } else if e.cfg.enter_action.eq_ignore_ascii_case("save") {
-                    e.finish(Kind::Save);
-                } else {
-                    e.finish(Kind::Copy);
-                }
+                let kind = e.instant_kind();
+                e.finish(kind);
             }
             check_close(&ed);
             a.queue_draw();
@@ -2336,7 +2351,7 @@ impl Editor {
             Drag::Draw { .. } | Drag::NewSel { .. } => return "crosshair",
             _ => {}
         }
-        if self.sel.is_some() && !matches!(self.flavor, Flavor::Quick | Flavor::Ocr) {
+        if self.sel.is_some() && !self.instant() {
             if let Some(h) = self.handle_at(w) {
                 return [
                     "nw-resize",
@@ -2378,7 +2393,7 @@ fn take_focus(window: &gtk::Window) {
 }
 
 /// Carry out what the user chose, after the overlay is gone.
-fn perform(outcome: Outcome, cfg: ScreenshotConfig) {
+fn perform(outcome: Outcome, cfg: ScreenshotConfig, ocr_layout: Option<Layout>) {
     let Outcome { kind, img } = outcome;
     match kind {
         Kind::Copy => {
@@ -2388,16 +2403,16 @@ fn perform(outcome: Outcome, cfg: ScreenshotConfig) {
             if super::write_image_to(&img, &path, &cfg) {
                 drop(img);
                 super::copy_image(&path);
+                crate::platform::linux::overlay::show_thumbnail(path.clone());
                 if !super::main_instance_running() {
                     super::linger_for_clipboard();
                 }
             }
         }
-        Kind::Save => {
-            if super::write_image(&img, &cfg.save_dir(), &cfg).is_none() {
-                error_dialog(&format!("Could not save to {}", cfg.save_dir().display()));
-            }
-        }
+        Kind::Save => match super::write_image(&img, &cfg.save_dir(), &cfg) {
+            Some(path) => crate::platform::linux::overlay::show_thumbnail(path),
+            None => super::error_dialog(&format!("Could not save to {}", cfg.save_dir().display())),
+        },
         Kind::SaveAs => {
             let dialog = gtk::FileChooserNative::new(
                 Some("Save Screenshot"),
@@ -2419,8 +2434,10 @@ fn perform(outcome: Outcome, cfg: ScreenshotConfig) {
                 } else {
                     path
                 };
-                if !super::write_image_to(&img, &path, &cfg) {
-                    error_dialog(&format!("Could not save {}", path.display()));
+                if super::write_image_to(&img, &path, &cfg) {
+                    crate::platform::linux::overlay::show_thumbnail(path);
+                } else {
+                    super::error_dialog(&format!("Could not save {}", path.display()));
                 }
             }
         }
@@ -2432,7 +2449,8 @@ fn perform(outcome: Outcome, cfg: ScreenshotConfig) {
                 super::spawn(&["pin", &path.to_string_lossy()]);
             }
         }
-        Kind::Ocr => super::ocr::run_on_image(img, cfg),
+        Kind::Ocr => super::ocr_window::run_on_image(img, cfg, ocr_layout),
+        Kind::Palette => super::palette::run_on_image(img),
     }
 }
 
@@ -2440,20 +2458,6 @@ fn pins_dir() -> PathBuf {
     dirs::cache_dir()
         .unwrap_or_else(|| PathBuf::from("/tmp"))
         .join("rustcast/pins")
-}
-
-fn error_dialog(msg: &str) {
-    let dialog = gtk::MessageDialog::new(
-        None::<&gtk::Window>,
-        gtk::DialogFlags::MODAL,
-        gtk::MessageType::Error,
-        gtk::ButtonsType::Close,
-        msg,
-    );
-    dialog.set_title("RustCast");
-    dialog.set_keep_above(true);
-    dialog.run();
-    dialog.close();
 }
 
 #[cfg(test)]

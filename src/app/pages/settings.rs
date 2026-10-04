@@ -271,6 +271,27 @@ fn general_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'stat
     );
 
     let theme_clone = theme.clone();
+    let thumbnail_seconds = settings_row_with_reset(
+        settings_item_column([
+            settings_hint_text(theme.clone(), "Screenshot thumbnail stays for (seconds)"),
+            settings_input("10", &config.screenshot.thumbnail_seconds.to_string())
+                .on_input(|input| {
+                    Message::SetConfig(SetConfigFields::ThumbnailSeconds(input.clone()))
+                })
+                .on_submit(Message::WriteConfig(false))
+                .width(Length::Fill)
+                .style(move |_, status| settings_text_input_item_style(&theme_clone, status))
+                .into(),
+            notice_item(
+                theme.clone(),
+                "0 keeps it until you close it · hovering always keeps it",
+            ),
+        ]),
+        ResetField::ThumbnailSeconds,
+        theme.clone(),
+    );
+
+    let theme_clone = theme.clone();
     let placeholder_setting = settings_row_with_reset(
         settings_item_column([
             settings_hint_text(theme.clone(), "Set the rustcast placeholder"),
@@ -452,6 +473,7 @@ fn general_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'stat
         shot_hotkey,
         ocr_hotkey,
         ocr_languages,
+        thumbnail_seconds,
         placeholder_setting,
         search,
         debounce,

@@ -8,12 +8,16 @@
 //! Modes:
 //! - `area`       freeze the screen, select a region (or click a window), annotate
 //! - `window`     same overlay, starting in window-pick mode
+//! - `window-id <xid>` capture that window (X11), then annotate
 //! - `fullscreen` capture the whole monitor under the pointer immediately
 //! - `quick`      select a region, copy + save instantly (no annotation)
-//! - `ocr`        select a region, copy the text in it
-//! - `edit <png>` open an existing image in the annotation editor
-//! - `pin <png>`  float an image above all windows
-//! - `ocr-file <png>` read the text of an existing image
+//! - `ocr`        select a region, copy the text in it (`--as text|code|table`;
+//!   `ocr-code` / `ocr-table` are shorthands)
+//! - `palette`    select a region, show its colour palette
+//! - `edit <img>` open an existing image in the annotation editor
+//! - `pin <img>`  float an image above all windows
+//! - `ocr-file <img>` / `palette-file <img>` the same for an image on disk
+//! - `compare [before] [after]` before/after view (default: last two captures)
 //!
 //! `--delay <secs>` shows a countdown before any capture mode.
 //!
@@ -22,11 +26,15 @@
 //! the clipboard history.
 
 pub mod beautify;
+pub mod compare;
 pub mod editor;
 pub mod grab;
 pub mod ocr;
+pub mod ocr_window;
+pub mod palette;
 pub mod pin;
 pub mod qr;
+pub mod ui;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -57,42 +65,65 @@ pub fn spawn(args: &[&str]) {
 pub fn run(args: &[String]) {
     force_x11_backend();
 
-    let mut mode = String::from("area");
-    let mut path: Option<PathBuf> = None;
+    let mut positional: Vec<String> = Vec::new();
     let mut delay = 0u64;
+    let mut layout: Option<ocr::Layout> = None;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
             "--delay" => delay = it.next().and_then(|d| d.parse().ok()).unwrap_or(0),
-            m if !m.starts_with("--") && path.is_none() && mode_takes_path(&mode) => {
-                path = Some(PathBuf::from(m));
-            }
-            m if !m.starts_with("--") => {
-                mode = m.to_string();
-            }
-            _ => {}
+            "--as" => layout = it.next().and_then(|l| ocr::Layout::parse(l)),
+            f if f.starts_with("--") => {}
+            v => positional.push(v.to_string()),
         }
     }
+    let mut mode = positional
+        .first()
+        .cloned()
+        .unwrap_or_else(|| "area".to_string());
+    match mode.as_str() {
+        "ocr-code" => (mode, layout) = ("ocr".into(), Some(ocr::Layout::Code)),
+        "ocr-table" => (mode, layout) = ("ocr".into(), Some(ocr::Layout::Table)),
+        _ => {}
+    }
+    let arg = |i: usize| positional.get(i).map(PathBuf::from);
 
     if gtk::init().is_err() {
         eprintln!("rustcast snap: GTK init failed");
         return;
     }
+    ui::install_css();
     let cfg = load_config().screenshot;
 
     match mode.as_str() {
-        "edit" | "pin" | "ocr-file" => {
-            let Some(path) = path else {
+        "edit" | "pin" | "ocr-file" | "palette-file" => {
+            let Some(path) = arg(1) else {
                 eprintln!("rustcast snap: {mode} needs an image path");
                 return;
             };
+            if !path.exists() {
+                error_dialog(&format!("{} no longer exists.", path.display()));
+                return;
+            }
             match mode.as_str() {
                 "edit" => editor::run_file(&path, cfg),
                 "pin" => pin::run(&path),
-                _ => ocr::run_file(&path, cfg),
+                "palette-file" => palette::run_file(&path),
+                _ => ocr_window::run_file(&path, cfg, layout),
             }
         }
-        "area" | "window" | "quick" | "ocr" | "fullscreen" => {
+        "compare" => compare::run(arg(1), arg(2)),
+        "window-id" => {
+            let Some(xid) = positional.get(1).and_then(|x| parse_xid(x)) else {
+                eprintln!("rustcast snap: window-id needs a window id");
+                return;
+            };
+            if delay > 0 {
+                countdown(delay);
+            }
+            editor::run_capture(editor::Flavor::Area, cfg, None, Some(xid));
+        }
+        "area" | "window" | "quick" | "ocr" | "fullscreen" | "palette" => {
             if delay > 0 {
                 countdown(delay);
             }
@@ -100,17 +131,85 @@ pub fn run(args: &[String]) {
                 "window" => editor::Flavor::Window,
                 "quick" => editor::Flavor::Quick,
                 "ocr" => editor::Flavor::Ocr,
+                "palette" => editor::Flavor::Palette,
                 "fullscreen" => editor::Flavor::Fullscreen,
                 _ => editor::Flavor::Area,
             };
-            editor::run_capture(flavor, cfg);
+            editor::run_capture(flavor, cfg, layout, None);
         }
         other => eprintln!("rustcast snap: unknown mode '{other}'"),
     }
 }
 
-fn mode_takes_path(mode: &str) -> bool {
-    matches!(mode, "edit" | "pin" | "ocr-file")
+fn parse_xid(s: &str) -> Option<u32> {
+    match s.strip_prefix("0x") {
+        Some(hex) => u32::from_str_radix(hex, 16).ok(),
+        None => s.parse().ok(),
+    }
+}
+
+/// While this file exists a capture is in progress; floating thumbnails hide
+/// themselves so they never end up in the screenshot.
+pub fn capturing_marker() -> PathBuf {
+    std::env::var("XDG_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| std::env::temp_dir())
+        .join("rustcast-capturing")
+}
+
+/// Holds the capture marker; removes it when dropped (also on early return).
+pub struct CaptureGuard;
+
+impl CaptureGuard {
+    /// Create the marker and give visible thumbnails a moment to hide.
+    pub fn begin() -> Self {
+        let _ = std::fs::write(capturing_marker(), std::process::id().to_string());
+        if crate::platform::linux::overlay_gtk::any_visible() {
+            std::thread::sleep(Duration::from_millis(220));
+        }
+        CaptureGuard
+    }
+}
+
+impl Drop for CaptureGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(capturing_marker());
+    }
+}
+
+/// A RustCast-styled message window. Blocks until closed.
+pub fn error_dialog(msg: &str) {
+    use gtk::prelude::*;
+    let (window, _) = ui::panel_window("RustCast", None);
+    window.set_default_size(420, -1);
+    window.set_resizable(false);
+    let root = gtk::Box::new(gtk::Orientation::Vertical, 14);
+    root.set_margin_top(6);
+    root.set_margin_bottom(14);
+    root.set_margin_start(18);
+    root.set_margin_end(18);
+    let label = gtk::Label::new(Some(msg));
+    label.set_line_wrap(true);
+    label.set_selectable(true);
+    label.set_xalign(0.0);
+    label.set_max_width_chars(60);
+    root.pack_start(&label, true, true, 0);
+    let ok = ui::button("OK", true);
+    ok.set_halign(gtk::Align::End);
+    {
+        let window = window.clone();
+        ok.connect_clicked(move |_| window.close());
+    }
+    root.pack_start(&ok, false, false, 0);
+    window.add(&root);
+    let main_loop = gtk::glib::MainLoop::new(None, false);
+    {
+        let main_loop = main_loop.clone();
+        window.connect_destroy(move |_| main_loop.quit());
+    }
+    window.show_all();
+    window.present();
+    main_loop.run();
 }
 
 /// When started straight from a Wayland terminal, move GTK onto XWayland the
@@ -136,7 +235,7 @@ pub fn load_config() -> Config {
         .unwrap_or_default()
 }
 
-/// A small "3… 2… 1…" pill before a delayed capture. Esc cancels (exits).
+/// A small "3… 2… 1…" pill before a delayed capture. Clicking it cancels.
 fn countdown(secs: u64) {
     use gtk::glib;
     use gtk::prelude::*;
@@ -154,26 +253,31 @@ fn countdown(secs: u64) {
     let remaining = std::rc::Rc::new(std::cell::Cell::new(secs));
     {
         let remaining = remaining.clone();
+        let p = ui::Palette::load();
         window.connect_draw(move |_, cr| {
             cr.set_operator(gtk::cairo::Operator::Source);
             cr.set_source_rgba(0.0, 0.0, 0.0, 0.0);
             let _ = cr.paint();
             cr.set_operator(gtk::cairo::Operator::Over);
             cr.arc(60.0, 60.0, 54.0, 0.0, std::f64::consts::TAU);
-            cr.set_source_rgba(0.08, 0.08, 0.1, 0.85);
-            let _ = cr.fill();
-            let layout = pangocairo::functions::create_layout(cr);
-            let mut font = gtk::pango::FontDescription::from_string("Sans Bold");
-            font.set_absolute_size(52.0 * f64::from(gtk::pango::SCALE));
-            layout.set_font_description(Some(&font));
-            layout.set_text(&remaining.get().to_string());
-            let (w, h) = layout.pixel_size();
-            cr.move_to(60.0 - f64::from(w) / 2.0, 60.0 - f64::from(h) / 2.0);
-            cr.set_source_rgb(1.0, 1.0, 1.0);
-            pangocairo::functions::show_layout(cr, &layout);
+            ui::set(cr, p.hud);
+            let _ = cr.fill_preserve();
+            ui::set(cr, p.rim);
+            cr.set_line_width(1.0);
+            let _ = cr.stroke();
+            let n = remaining.get().to_string();
+            let (w, h) = ui::text_size(cr, &p, &n, 48.0, true);
+            ui::set(cr, p.label(ui::PRIMARY));
+            ui::text(cr, &p, &n, 60.0 - w / 2.0, 54.0 - h / 2.0, 48.0, true);
+            let hint = "click to cancel";
+            let (w, _) = ui::text_size(cr, &p, hint, 10.0, false);
+            ui::set(cr, p.label(ui::SECONDARY));
+            ui::text(cr, &p, hint, 60.0 - w / 2.0, 82.0, 10.0, false);
             glib::Propagation::Stop
         });
     }
+    window.add_events(gtk::gdk::EventMask::BUTTON_PRESS_MASK);
+    window.connect_button_press_event(|_, _| std::process::exit(0));
     window.show_all();
 
     let main_loop = glib::MainLoop::new(None, false);
@@ -205,7 +309,7 @@ pub fn flush_gtk() {
     }
 }
 
-fn timestamp_name(prefix: &str, ext: &str) -> String {
+pub fn timestamp_name(prefix: &str, ext: &str) -> String {
     let ms = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .map(|d| d.as_millis())

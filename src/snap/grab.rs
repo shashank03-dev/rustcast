@@ -147,6 +147,15 @@ fn x11() -> Result<Frame, String> {
 }
 
 fn portal() -> Result<Frame, String> {
+    portal_request(false)
+}
+
+/// The desktop's own screenshot dialog (window / area picking on Wayland).
+pub fn portal_interactive() -> Result<Frame, String> {
+    portal_request(true)
+}
+
+fn portal_request(interactive: bool) -> Result<Frame, String> {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -154,7 +163,7 @@ fn portal() -> Result<Frame, String> {
     let uri = rt.block_on(async {
         use ashpd::desktop::screenshot::Screenshot;
         let response = Screenshot::request()
-            .interactive(false)
+            .interactive(interactive)
             .modal(false)
             .send()
             .await
@@ -239,6 +248,18 @@ fn percent_decode(s: &str) -> String {
 /// `(x, y, w, h)` in root (device) pixels, including their decorations.
 /// Only meaningful on X11 — on Wayland XWayland only sees its own clients.
 pub fn visible_windows() -> Vec<(i32, i32, i32, i32)> {
+    windows_with_ids().into_iter().map(|(_, r)| r).collect()
+}
+
+/// The on-screen rectangle (with decorations) of one top-level window.
+pub fn window_rect(xid: u32) -> Option<(i32, i32, i32, i32)> {
+    windows_with_ids()
+        .into_iter()
+        .find(|(id, _)| *id == xid)
+        .map(|(_, r)| r)
+}
+
+fn windows_with_ids() -> Vec<(u32, (i32, i32, i32, i32))> {
     let Ok((conn, screen_num)) = x11rb::connect(None) else {
         return Vec::new();
     };
@@ -321,7 +342,7 @@ pub fn visible_windows() -> Vec<(i32, i32, i32, i32)> {
             h -= (t + b) as i32;
         }
         if w > 8 && h > 8 {
-            out.push((x, y, w, h));
+            out.push((win, (x, y, w, h)));
         }
     }
     out
