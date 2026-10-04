@@ -28,25 +28,39 @@ Rust-powered productivity launcher, plus these new features:
    `1`–`8` pick a colour, `Shift` draws straight lines / squares, arrow keys nudge
    the selection, `Ctrl+Z` / `Ctrl+Shift+Z` undo / redo. Finish with
    `Enter` / `Ctrl+C` (copy), `Ctrl+S` (save), `Ctrl+Shift+S` (save as),
-   `Ctrl+P` (**pin** it on top of all windows), `Ctrl+T` (**copy the text**, OCR)
-   or `Ctrl+B` (**beautify**: gradient backdrop, padding, rounded corners, shadow).
+   `Ctrl+P` (**pin** it on top of all windows), `Ctrl+T` (**copy the text**, OCR),
+   `Ctrl+K` (**colour palette**) or `Ctrl+B` (**beautify**: gradient backdrop,
+   padding, rounded corners, shadow).
 
-   Every capture then pops up as a thumbnail in the **bottom-left corner** —
-   **drag it straight into any application**, double-click to annotate it again,
-   or right-click for Copy / Pin / Copy Text / Show in Folder / Delete.
+   Every capture then slides in as a **floating thumbnail in the bottom-left
+   corner** (above your dock/panel, on every workspace; several stack upwards).
+   **Drag it straight into any application**, click it to annotate, or hover for
+   **Copy · Save · Annotate · Pin · Copy Text · More** (Copy Code / Table, Extract
+   Colours, Compare with Previous, Show in Folder, Move to Trash). It stays while
+   you hover and otherwise leaves after `thumbnail_seconds` (0 = until closed), and
+   hides itself during the next capture so it never ends up in a screenshot.
    Captures also land in the clipboard history.
 
 3. **Copy text from anywhere (OCR)** — `Super+Shift+T`, select the text, done: it
    is on your clipboard (and in clipboard history) and shown in a small window
-   where you can fix it, **translate** it or search it. QR codes in the selection
-   are decoded too. Works on dark themes and terminals, any Tesseract language
+   where you can fix it, **translate** it or search it. Switch between **Text**,
+   **Code** (indentation and spacing rebuilt exactly) and **Table** (real columns —
+   pastes into spreadsheet cells, or *Save CSV*). Links, e-mail addresses, phone
+   numbers, colours and sums found in the text become one-click actions; QR codes
+   in the selection are decoded too. Works on dark themes and terminals, any Tesseract language
    (`ocr_languages = "eng+hin"`). Built for low-end machines: the engine runs only
    for the fraction of a second it needs (~40 MB, then fully released), the crop is
    piped in as compact grayscale — nothing stays in memory.
 
-   More capture modes in the launcher: *Capture Window*, *Capture Full Screen*,
-   *Quick Capture* (copy instantly), *Capture Area in 3 / 5 / 10 Seconds*,
-   *Open Screenshots Folder*.
+   More in the launcher: *Capture Window*, *Capture Full Screen*, *Quick Capture*
+   (copy instantly), *Capture Area in 3 / 5 / 10 Seconds*, *Copy Code / Table from
+   Screen*, *Pick Colours from Screen* (dominant colours as HEX / RGB / HSL or CSS
+   variables), *Compare Last Two Screenshots* (before/after slider, side by side,
+   or every changed area numbered with how much changed), *Open Screenshots Folder*.
+
+   Or just ask Jev: `jev screenshot firefox` (brings that window up and captures
+   it), `jev screenshot full screen in 5 seconds`, `jev copy code from screen`,
+   `jev copy table`, `jev pick colors`, `jev compare screenshots`.
 
 4. **Jev, the command operator** — type `jev` and say what you want in plain words.
    Jev turns it into actions you run with Enter:
@@ -185,6 +199,8 @@ show_magnifier = true
 window_snap = true            # click a window to capture it (X11)
 ocr_languages = "eng"         # Tesseract codes, e.g. "eng+hin+deu"
 translate_to = ""             # empty = system language
+show_thumbnail = true
+thumbnail_seconds = 10        # 0 = stays until you close it
 
 [recorder]
 fps = 30
@@ -234,7 +250,7 @@ minimized and other-workspace windows keep recording and are restored.
 
 Any capture mode can be bound to a key of your own (e.g. Print) by running
 `rustcast rustcast://capture/<mode>` with `<mode>` = `area`, `window`,
-`fullscreen`, `quick` or `ocr`.
+`fullscreen`, `quick`, `ocr`, `ocr-code`, `ocr-table`, `palette` or `compare`.
 
 ## Brand
 

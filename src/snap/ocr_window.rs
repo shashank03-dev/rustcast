@@ -434,6 +434,9 @@ fn show_result(
         header.set_title(Some("Couldn't Read Text"));
         message.set_text(err);
         message.set_selectable(true);
+        message.set_justify(gtk::Justification::Left);
+        message.set_xalign(0.0);
+        message.set_margin_start(24);
         stack.set_visible_child_name("message");
         segments.set_visible(false);
         hint.set_visible(false);

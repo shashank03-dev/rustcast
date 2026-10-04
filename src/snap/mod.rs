@@ -157,6 +157,16 @@ pub fn capturing_marker() -> PathBuf {
         .join("rustcast-capturing")
 }
 
+/// True while a capture is really running: the marker exists and the
+/// process that wrote it is alive (a killed capture must not leave
+/// thumbnails hidden forever).
+pub fn capture_in_progress() -> bool {
+    std::fs::read_to_string(capturing_marker())
+        .ok()
+        .and_then(|s| s.trim().parse::<u32>().ok())
+        .is_some_and(|pid| Path::new(&format!("/proc/{pid}")).exists())
+}
+
 /// Holds the capture marker; removes it when dropped (also on early return).
 pub struct CaptureGuard;
 

@@ -628,12 +628,11 @@ pub fn run(path: PathBuf) {
         let (st, dismiss, window, canvas) =
             (st.clone(), dismiss.clone(), window.clone(), canvas.clone());
         let stay = Duration::from_secs(u64::from(cfg.thumbnail_seconds));
-        let marker = crate::snap::capturing_marker();
         let hidden_for_capture = Cell::new(false);
         let started = Instant::now();
         glib::timeout_add_local(Duration::from_millis(100), move || {
             // Get out of the way while a new screenshot is being taken.
-            let capturing = marker.exists();
+            let capturing = crate::snap::capture_in_progress();
             if capturing != hidden_for_capture.get() {
                 hidden_for_capture.set(capturing);
                 if capturing {

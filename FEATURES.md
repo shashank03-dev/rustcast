@@ -15,4 +15,9 @@
    ellipse, pen, highlighter, text, numbered steps, pixelate/blur/solid censor,
    spotlight, colour picker, select & move), undo/redo, copy / save / save as,
    pin to screen, beautify, delayed capture, quick capture, annotate existing images
-1. Copy text from screen — OCR (`Super+Shift+T`) with translate, search and QR codes
+1. Copy text from screen — OCR (`Super+Shift+T`) as text, code (indentation kept)
+   or a table (spreadsheet / CSV), with smart actions, translate, search and QR codes
+1. Colour palette from any part of the screen or any capture
+1. Before / after comparison of screenshots (slider, side by side, differences)
+1. Floating capture thumbnail with drag-and-drop and hover actions
+1. Jev screenshot commands (`jev screenshot firefox`, `jev copy table`, …)
