@@ -12,12 +12,43 @@ Rust-powered productivity launcher, plus these new features:
    a large preview with details, All / Text / Images filters (`←` `→`), typing
    to search, `↑` `↓` to browse, `Enter` to copy, `Ctrl+1…9` for quick picks. History is **persisted to disk** under
    `~/.local/share/rustcast/clipboard` and survives restarts.
-2. **Screenshot thumbnail with real drag-and-drop** — take a region screenshot with
-   `Super+Shift+S` (or use PrintScreen). A thumbnail pops up in the **bottom-left
-   corner**; click it to copy the image, or **drag it straight into any application**
-   (browser, chat, file manager) as a PNG file via the XDND protocol.
+2. **Screenshots with a built-in editor** — `Super+Shift+S` freezes the screen.
+   Drag to select an area or click a window (`F` for the whole screen); a magnifier
+   shows exact pixels and colours. Then annotate in place:
 
-3. **Jev, the command operator** — type `jev` and say what you want in plain words.
+   | Key | Tool | Key | Tool |
+   |---|---|---|---|
+   | `A` | Arrow | `T` | Text (click again to re-edit) |
+   | `L` | Line | `N` | Numbered steps 1, 2, 3… |
+   | `R` | Rectangle (outline / filled) | `B` | Censor: pixelate · blur · solid |
+   | `O` | Ellipse | `H` | Spotlight (dim everything else) |
+   | `P` | Pen | `I` | Colour picker (copies `#RRGGBB`) |
+   | `M` | Highlighter | `V` | Select, move, recolour, delete |
+
+   `1`–`8` pick a colour, `Shift` draws straight lines / squares, arrow keys nudge
+   the selection, `Ctrl+Z` / `Ctrl+Shift+Z` undo / redo. Finish with
+   `Enter` / `Ctrl+C` (copy), `Ctrl+S` (save), `Ctrl+Shift+S` (save as),
+   `Ctrl+P` (**pin** it on top of all windows), `Ctrl+T` (**copy the text**, OCR)
+   or `Ctrl+B` (**beautify**: gradient backdrop, padding, rounded corners, shadow).
+
+   Every capture then pops up as a thumbnail in the **bottom-left corner** —
+   **drag it straight into any application**, double-click to annotate it again,
+   or right-click for Copy / Pin / Copy Text / Show in Folder / Delete.
+   Captures also land in the clipboard history.
+
+3. **Copy text from anywhere (OCR)** — `Super+Shift+T`, select the text, done: it
+   is on your clipboard (and in clipboard history) and shown in a small window
+   where you can fix it, **translate** it or search it. QR codes in the selection
+   are decoded too. Works on dark themes and terminals, any Tesseract language
+   (`ocr_languages = "eng+hin"`). Built for low-end machines: the engine runs only
+   for the fraction of a second it needs (~40 MB, then fully released), the crop is
+   piped in as compact grayscale — nothing stays in memory.
+
+   More capture modes in the launcher: *Capture Window*, *Capture Full Screen*,
+   *Quick Capture* (copy instantly), *Capture Area in 3 / 5 / 10 Seconds*,
+   *Open Screenshots Folder*.
+
+4. **Jev, the command operator** — type `jev` and say what you want in plain words.
    Jev turns it into actions you run with Enter:
 
    | You type | Jev does |
@@ -32,7 +63,7 @@ Rust-powered productivity launcher, plus these new features:
    | `jev open downloads and firefox then show desktop` | several steps → a "Run all" row |
 
    Type just `jev` for examples.
-4. **Screen recorder** (`Super+Shift+R`) — opens a recorder view laid out for the
+5. **Screen recorder** (`Super+Shift+R`) — opens a recorder view laid out for the
    job: screen cards, a grid of window cards, switches for the options, and — while
    recording — a live banner with the timer and a big Stop button:
    - **Lock onto a window**: the recording follows that one app. Windows dragged
@@ -109,13 +140,16 @@ cargo build --release
 Runtime/build dependencies (Debian/Ubuntu names):
 
 ```sh
-sudo apt install libgtk-3-dev libxcb1-dev libxtst-dev gnome-screenshot \
+sudo apt install libgtk-3-dev libxcb1-dev libxtst-dev tesseract-ocr \
                  ffmpeg gstreamer1.0-tools gstreamer1.0-pipewire libnotify-bin
 ```
 
 - `libgtk-3-dev` / `ayatana-appindicator` — tray icon
 - `libxtst` — paste injection (XTEST)
-- `gnome-screenshot` — region capture for the screenshot feature
+- `tesseract-ocr` — text recognition (add `tesseract-ocr-<lang>` for more
+  languages); optional `translate-shell` translates OCR text in place
+- `xdg-desktop-portal` — screen capture on Wayland (fallbacks: `grim`,
+  `gnome-screenshot`, `spectacle`); on X11 the screen is read directly
 - `ffmpeg` — video encoding for the screen recorder
 - `gstreamer1.0-pipewire` — Wayland (portal) recordings
 - X11/XCB — windowing, EWMH tiling, XDND drag source (via the pure-Rust `x11rb`)
@@ -127,6 +161,7 @@ sudo apt install libgtk-3-dev libxcb1-dev libxtst-dev gnome-screenshot \
 | Toggle launcher | `Alt+Space` |
 | Clipboard history | `Super+Shift+C` |
 | Screenshot capture | `Super+Shift+S` |
+| Copy text from screen (OCR) | `Super+Shift+T` |
 | Screen recorder (again to stop) | `Super+Shift+R` |
 
 All are configurable in `~/.config/rustcast/config.toml`.
@@ -138,7 +173,18 @@ the same schema as upstream RustCast, with these added fields:
 
 ```toml
 screenshot_hotkey = "SUPER+SHIFT+S"
+ocr_hotkey = "SUPER+SHIFT+T"
 recorder_hotkey = "SUPER+SHIFT+R"
+
+[screenshot]
+save_dir = "~/Pictures/Screenshots"
+format = "png"                # png, jpg or webp
+jpeg_quality = 90
+enter_action = "copy"         # what Enter does in the overlay: copy or save
+show_magnifier = true
+window_snap = true            # click a window to capture it (X11)
+ocr_languages = "eng"         # Tesseract codes, e.g. "eng+hin+deu"
+translate_to = ""             # empty = system language
 
 [recorder]
 fps = 30
@@ -182,6 +228,13 @@ minimized and other-workspace windows keep recording and are restored.
   RustCast can't paint itself out: the ● REC pill is not shown (stop with the
   hotkey) and opening the launcher mid-recording will appear in the video.
 - App launching uses `.desktop` entries (`gio launch`) and `xdg-open`.
+- **Screenshots on Wayland** are taken through the desktop portal; clicking a
+  window to capture it needs X11 (on Wayland, drag around the window instead).
+  The overlay covers the monitor under the pointer.
+
+Any capture mode can be bound to a key of your own (e.g. Print) by running
+`rustcast rustcast://capture/<mode>` with `<mode>` = `area`, `window`,
+`fullscreen`, `quick` or `ocr`.
 
 ## Brand
 

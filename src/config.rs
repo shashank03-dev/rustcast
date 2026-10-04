@@ -21,7 +21,10 @@ pub struct Config {
     pub clipboard_hotkey: String,
     pub screenshot_hotkey: String,
     pub recorder_hotkey: String,
+    /// Select a screen region and copy the text in it (OCR).
+    pub ocr_hotkey: String,
     pub recorder: RecorderConfig,
+    pub screenshot: ScreenshotConfig,
     pub buffer_rules: Buffer,
     pub event_duration: u32,
     pub main_page: MainPage,
@@ -48,7 +51,9 @@ impl Default for Config {
             clipboard_hotkey: "SUPER+SHIFT+C".to_string(),
             screenshot_hotkey: "SUPER+SHIFT+S".to_string(),
             recorder_hotkey: "SUPER+SHIFT+R".to_string(),
+            ocr_hotkey: "SUPER+SHIFT+T".to_string(),
             recorder: RecorderConfig::default(),
+            screenshot: ScreenshotConfig::default(),
             buffer_rules: Buffer::default(),
             theme: Theme::default(),
             start_at_login: false,
@@ -316,6 +321,71 @@ impl RecorderConfig {
     pub fn output_dir(&self) -> std::path::PathBuf {
         let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
         std::path::PathBuf::from(self.output_dir.replacen('~', &home, 1))
+    }
+}
+
+/// Screenshot / annotation / OCR settings (`[screenshot]` in the config file).
+///
+/// - `save_dir`: where Ctrl+S saves (`~` is expanded)
+/// - `format`: `png`, `jpg` or `webp`
+/// - `enter_action`: what Enter does in the capture overlay: `copy` or `save`
+/// - `ocr_languages`: Tesseract language codes joined with `+` (`eng+hin`)
+/// - `translate_to`: target language for "Translate"; empty = system language
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(default)]
+pub struct ScreenshotConfig {
+    pub save_dir: String,
+    pub format: String,
+    pub jpeg_quality: u8,
+    pub enter_action: String,
+    pub show_magnifier: bool,
+    pub window_snap: bool,
+    pub ocr_languages: String,
+    pub translate_to: String,
+}
+
+impl Default for ScreenshotConfig {
+    fn default() -> Self {
+        Self {
+            save_dir: "~/Pictures/Screenshots".to_string(),
+            format: "png".to_string(),
+            jpeg_quality: 90,
+            enter_action: "copy".to_string(),
+            show_magnifier: true,
+            window_snap: true,
+            ocr_languages: "eng".to_string(),
+            translate_to: String::new(),
+        }
+    }
+}
+
+impl ScreenshotConfig {
+    /// The save directory with `~` expanded.
+    pub fn save_dir(&self) -> std::path::PathBuf {
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+        std::path::PathBuf::from(self.save_dir.replacen('~', &home, 1))
+    }
+
+    /// Normalised file extension for saved screenshots.
+    pub fn extension(&self) -> &'static str {
+        match self.format.to_ascii_lowercase().as_str() {
+            "jpg" | "jpeg" => "jpg",
+            "webp" => "webp",
+            _ => "png",
+        }
+    }
+
+    /// Target language for translation: the configured one, else the system
+    /// language (`LANG=de_DE.UTF-8` → `de`), else English.
+    pub fn translate_target(&self) -> String {
+        if !self.translate_to.trim().is_empty() {
+            return self.translate_to.trim().to_string();
+        }
+        std::env::var("LANG")
+            .ok()
+            .and_then(|l| l.split(['_', '.']).next().map(str::to_string))
+            .filter(|l| l.len() >= 2 && l != "C" && l != "POSIX")
+            .unwrap_or_else(|| "en".to_string())
     }
 }
 

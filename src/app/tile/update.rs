@@ -169,6 +169,22 @@ fn update_inner(tile: &mut Tile, message: Message) -> Task<Message> {
                 "clipboard" => Task::done(Message::KeyPressed(tile.hotkeys.clipboard_hotkey)),
                 "screenshot" => Task::done(Message::KeyPressed(tile.hotkeys.screenshot_hotkey)),
                 "recorder" => Task::done(Message::KeyPressed(tile.hotkeys.recorder_hotkey)),
+                "ocr" => Task::done(Message::KeyPressed(tile.hotkeys.ocr_hotkey)),
+                // Capture modes (`rustcast rustcast://capture/<mode>`), e.g.
+                // bound to custom keys or the Print key.
+                "capture" => {
+                    let mode = url.path().trim_matches('/');
+                    let mode = if mode.is_empty() { "area" } else { mode };
+                    if crate::app::screenshot::CAPTURE_MODES.contains(&mode) {
+                        crate::snap::spawn(&[mode]);
+                    }
+                    Task::none()
+                }
+                // Results handed over by a screenshot/OCR subprocess.
+                "snap-copy" => {
+                    crate::snap::handle_copy_url(&url);
+                    Task::none()
+                }
                 "recorder-stop" => Task::done(Message::RecorderStop),
                 "recorder-add" => Task::done(Message::OpenRecorderPage),
 
@@ -218,6 +234,7 @@ fn update_inner(tile: &mut Tile, message: Message) -> Task<Message> {
                         &tile.config.clipboard_hotkey,
                         &tile.config.screenshot_hotkey,
                         &tile.config.recorder_hotkey,
+                        &tile.config.ocr_hotkey,
                     );
                 }
                 tile.hotkeys.shell_hotkeys()
@@ -499,6 +516,10 @@ fn update_inner(tile: &mut Tile, message: Message) -> Task<Message> {
                 tile.hotkeys.recorder_hotkey = hotkey
             }
 
+            if let Ok(hotkey) = Shortcut::parse(&new_config.ocr_hotkey) {
+                tile.hotkeys.ocr_hotkey = hotkey
+            }
+
             let mut shell_map = HashMap::new();
 
             for shell in &new_config.shells {
@@ -543,6 +564,11 @@ fn update_inner(tile: &mut Tile, message: Message) -> Task<Message> {
 
             if shortcut == tile.hotkeys.screenshot_hotkey {
                 crate::app::screenshot::trigger_capture();
+                return Task::none();
+            }
+
+            if shortcut == tile.hotkeys.ocr_hotkey {
+                crate::snap::spawn(&["ocr"]);
                 return Task::none();
             }
 
@@ -782,6 +808,7 @@ fn update_inner(tile: &mut Tile, message: Message) -> Task<Message> {
             new_options.extend(tile.config.modes.to_apps());
             new_options.extend(App::basic_apps());
             new_options.extend(App::window_apps());
+            new_options.extend(App::capture_apps());
             new_options.par_sort_by_key(|x| x.display_name.len());
             tile.options = AppIndex::from_apps(new_options);
 
@@ -1050,6 +1077,9 @@ fn update_inner(tile: &mut Tile, message: Message) -> Task<Message> {
             match config.clone() {
                 SetConfigFields::ToggleHotkey(hk) => final_config.toggle_hotkey = hk,
                 SetConfigFields::ClipboardHotkey(hk) => final_config.clipboard_hotkey = hk,
+                SetConfigFields::ScreenshotHotkey(hk) => final_config.screenshot_hotkey = hk,
+                SetConfigFields::OcrHotkey(hk) => final_config.ocr_hotkey = hk,
+                SetConfigFields::OcrLanguages(l) => final_config.screenshot.ocr_languages = l,
                 SetConfigFields::ClipboardHistory(cbhist) => final_config.cbhist = cbhist,
                 SetConfigFields::Modes(Editable::Create((key, value))) => {
                     final_config.modes.insert(key, value);
@@ -1217,6 +1247,13 @@ fn update_inner(tile: &mut Tile, message: Message) -> Task<Message> {
                 ResetField::ToggleHotkey => tile.config.toggle_hotkey = default.toggle_hotkey,
                 ResetField::ClipboardHotkey => {
                     tile.config.clipboard_hotkey = default.clipboard_hotkey
+                }
+                ResetField::ScreenshotHotkey => {
+                    tile.config.screenshot_hotkey = default.screenshot_hotkey
+                }
+                ResetField::OcrHotkey => tile.config.ocr_hotkey = default.ocr_hotkey,
+                ResetField::OcrLanguages => {
+                    tile.config.screenshot.ocr_languages = default.screenshot.ocr_languages
                 }
                 ResetField::Placeholder => tile.config.placeholder = default.placeholder,
                 ResetField::SearchUrl => tile.config.search_url = default.search_url,
@@ -1965,6 +2002,7 @@ mod tests {
                 clipboard_hotkey: Shortcut::parse("cmd+shift+c").unwrap(),
                 screenshot_hotkey: Shortcut::parse("super+shift+s").unwrap(),
                 recorder_hotkey: Shortcut::parse("super+shift+r").unwrap(),
+                ocr_hotkey: Shortcut::parse("super+shift+t").unwrap(),
                 shells: HashMap::new(),
                 handle: None,
             },

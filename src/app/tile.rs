@@ -397,6 +397,7 @@ pub struct Hotkeys {
     pub clipboard_hotkey: Shortcut,
     pub screenshot_hotkey: Shortcut,
     pub recorder_hotkey: Shortcut,
+    pub ocr_hotkey: Shortcut,
     pub shells: HashMap<Shortcut, Shelly>,
 }
 
@@ -407,12 +408,13 @@ impl Hotkeys {
             self.clipboard_hotkey.clone(),
             self.screenshot_hotkey.clone(),
             self.recorder_hotkey,
+            self.ocr_hotkey,
         ];
         a.extend(self.shell_hotkeys());
         a
     }
 
-    /// Only the user-defined shell-command hotkeys. On GNOME the four core
+    /// Only the user-defined shell-command hotkeys. On GNOME the core
     /// hotkeys are handled by the gsettings backend, so the in-process X11
     /// grab registers just these to avoid double-firing.
     pub fn shell_hotkeys(&self) -> Vec<Shortcut> {

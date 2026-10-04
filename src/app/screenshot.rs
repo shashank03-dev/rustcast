@@ -2,9 +2,9 @@
 //! draggable bottom-left thumbnail (via the X11 overlay) and adds them to the
 //! clipboard history.
 //!
-//! Capture is triggered by the configurable screenshot hotkey and shells out to
-//! `gnome-screenshot -a` (interactive region select). The watcher additionally
-//! catches screenshots taken by other tools (PrintScreen → `~/Pictures/Screenshots`).
+//! Capture is triggered by the configurable screenshot hotkey and opens RustCast's
+//! own capture overlay (see [`crate::snap`]). The watcher additionally catches
+//! screenshots taken by other tools (PrintScreen → `~/Pictures/Screenshots`).
 
 use std::borrow::Cow;
 use std::collections::HashSet;
@@ -19,9 +19,15 @@ use crate::app::{Editable, Message};
 use crate::clipboard::ClipBoardContentType;
 use crate::persist::screenshots_dir;
 
+/// Capture modes accepted by `rustcast://capture/<mode>` and the launcher.
+pub const CAPTURE_MODES: [&str; 5] = ["area", "window", "fullscreen", "quick", "ocr"];
+
 /// Directories watched for new screenshots.
 fn watch_dirs() -> Vec<PathBuf> {
-    let mut dirs = vec![screenshots_dir()];
+    let mut dirs = vec![
+        screenshots_dir(),
+        crate::snap::load_config().screenshot.save_dir(),
+    ];
     if let Some(home) = dirs::home_dir() {
         dirs.push(home.join("Pictures/Screenshots"));
         dirs.push(home.join("Pictures"));
@@ -34,46 +40,24 @@ fn watch_dirs() -> Vec<PathBuf> {
     dirs
 }
 
-/// Trigger an interactive region capture. The resulting PNG lands in the
-/// RustCast screenshots directory, where the watcher picks it up.
+/// Open the capture overlay (region select + annotate).
 pub fn trigger_capture() {
-    std::thread::spawn(|| {
-        let dir = screenshots_dir();
-        if std::fs::create_dir_all(&dir).is_err() {
-            return;
-        }
-        let ts = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .map(|d| d.as_millis())
-            .unwrap_or(0);
-        let path = dir.join(format!("rustcast-{ts}.png"));
-
-        let status = std::process::Command::new("gnome-screenshot")
-            .arg("-a")
-            .arg("-f")
-            .arg(&path)
-            .status();
-
-        match status {
-            Ok(s) if s.success() && path.exists() => {
-                // Watcher will display + record it.
-            }
-            _ => {
-                log::warn!("gnome-screenshot capture failed or was cancelled");
-                let _ = std::fs::remove_file(&path);
-            }
-        }
-    });
+    crate::snap::spawn(&["area"]);
 }
 
 fn is_image_file(path: &std::path::Path) -> bool {
-    matches!(
-        path.extension()
-            .and_then(|e| e.to_str())
-            .map(|e| e.to_lowercase())
-            .as_deref(),
-        Some("png") | Some("jpg") | Some("jpeg")
-    )
+    // Dot-files are in-progress writes or RustCast's own temporary grabs.
+    let hidden = path
+        .file_name()
+        .is_some_and(|n| n.to_string_lossy().starts_with('.'));
+    !hidden
+        && matches!(
+            path.extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.to_lowercase())
+                .as_deref(),
+            Some("png") | Some("jpg") | Some("jpeg") | Some("webp")
+        )
 }
 
 fn load_image_data(path: &std::path::Path) -> Option<ImageData<'static>> {
@@ -115,14 +99,18 @@ pub fn watch_subscription() -> impl futures::Stream<Item = Message> {
                     if !is_image_file(&path) || seen.contains(&path) {
                         continue;
                     }
+                    let modified = entry.metadata().and_then(|m| m.modified()).ok();
+                    // Give other tools a moment to finish writing the file.
+                    let settled = modified
+                        .and_then(|m| m.elapsed().ok())
+                        .is_some_and(|age| age >= Duration::from_millis(300));
+                    if !settled {
+                        continue;
+                    }
                     seen.insert(path.clone());
 
                     // Only react to files created after startup.
-                    let fresh = entry
-                        .metadata()
-                        .and_then(|m| m.modified())
-                        .map(|m| m >= start)
-                        .unwrap_or(false);
+                    let fresh = modified.is_some_and(|m| m >= start);
                     if !fresh {
                         continue;
                     }

@@ -18,7 +18,7 @@ const CUSTOM_SCHEMA: &str = "org.gnome.settings-daemon.plugins.media-keys.custom
 const BASE_PATH: &str = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings";
 
 /// The keybindings we manage: (id, human name, `rustcast://` host).
-const ENTRIES: [(&str, &str, &str); 4] = [
+const ENTRIES: [(&str, &str, &str); 5] = [
     ("rustcast-toggle", "RustCast Toggle", "toggle"),
     (
         "rustcast-clipboard",
@@ -27,6 +27,7 @@ const ENTRIES: [(&str, &str, &str); 4] = [
     ),
     ("rustcast-screenshot", "RustCast Screenshot", "screenshot"),
     ("rustcast-recorder", "RustCast Screen Recorder", "recorder"),
+    ("rustcast-ocr", "RustCast Copy Text from Screen", "ocr"),
 ];
 
 /// True when running under a GNOME session with `gsettings` available, i.e.
@@ -83,8 +84,15 @@ fn set(schema_path: &str, key: &str, value: &str) {
 /// The accelerators are RustCast hotkey strings (e.g. `"ALT+SPACE"`); empty or
 /// unparseable ones are skipped. `exe` is the absolute path invoked by the
 /// keybinding. Safe to call on every launch — it is idempotent.
-pub fn register(exe: &Path, toggle: &str, clipboard: &str, screenshot: &str, recorder: &str) {
-    let accels = [toggle, clipboard, screenshot, recorder];
+pub fn register(
+    exe: &Path,
+    toggle: &str,
+    clipboard: &str,
+    screenshot: &str,
+    recorder: &str,
+    ocr: &str,
+) {
+    let accels = [toggle, clipboard, screenshot, recorder, ocr];
     let mut managed_paths = Vec::new();
 
     for ((id, name, host), accel) in ENTRIES.iter().zip(accels) {
