@@ -337,6 +337,80 @@ impl App {
         ]
     }
 
+    /// Screenshot, annotation and OCR commands.
+    pub fn capture_apps() -> Vec<App> {
+        let icons = icns_data_to_handle(ICNS_ICON.to_vec());
+        let actions: &[(&str, &str, &str, u64)] = &[
+            ("Capture Area", "screenshot capture area region", "area", 0),
+            ("Capture Window", "screenshot capture window", "window", 0),
+            (
+                "Capture Full Screen",
+                "screenshot capture full screen",
+                "fullscreen",
+                0,
+            ),
+            (
+                "Quick Capture (copy instantly)",
+                "screenshot quick capture copy",
+                "quick",
+                0,
+            ),
+            (
+                "Copy Text from Screen (OCR)",
+                "ocr copy text from screen extract read scan",
+                "ocr",
+                0,
+            ),
+            (
+                "Capture Area in 3 Seconds",
+                "screenshot timer delay 3 seconds",
+                "area",
+                3,
+            ),
+            (
+                "Capture Area in 5 Seconds",
+                "screenshot timer delay 5 seconds",
+                "area",
+                5,
+            ),
+            (
+                "Capture Area in 10 Seconds",
+                "screenshot timer delay 10 seconds",
+                "area",
+                10,
+            ),
+        ];
+        let mut apps: Vec<App> = actions
+            .iter()
+            .map(|(name, search, mode, delay)| App {
+                ranking: 0,
+                open_command: AppCommand::Function(Function::Capture {
+                    mode: mode.to_string(),
+                    delay: *delay,
+                }),
+                desc: "Screenshot".to_string(),
+                icons: icons.clone(),
+                display_name: name.to_string(),
+                search_name: search.to_string(),
+            })
+            .collect();
+        apps.push(App {
+            ranking: 0,
+            open_command: AppCommand::Function(Function::OpenRawUrl(
+                crate::snap::load_config()
+                    .screenshot
+                    .save_dir()
+                    .to_string_lossy()
+                    .to_string(),
+            )),
+            desc: "Screenshot".to_string(),
+            icons,
+            display_name: "Open Screenshots Folder".to_string(),
+            search_name: "screenshots folder open".to_string(),
+        });
+        apps
+    }
+
     /// Window tiling actions (12 positions)
     pub fn window_apps() -> Vec<App> {
         use crate::platform::window::TilePosition;

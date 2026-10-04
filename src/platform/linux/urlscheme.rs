@@ -39,6 +39,11 @@ pub fn forward_if_running(url: &str) -> bool {
     false
 }
 
+/// True when another RustCast instance is listening on the socket.
+pub fn is_running() -> bool {
+    UnixStream::connect(socket_path()).is_ok()
+}
+
 /// Bind the single-instance socket and start the desktop URL handler.
 /// Safe to call once at startup.
 pub fn install() {

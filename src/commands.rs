@@ -68,6 +68,12 @@ pub enum Function {
     },
     /// Interactive region screenshot.
     Screenshot,
+    /// A capture mode (see [`crate::app::screenshot::CAPTURE_MODES`]),
+    /// optionally after a countdown.
+    Capture {
+        mode: String,
+        delay: u64,
+    },
 }
 
 impl Function {
@@ -162,10 +168,18 @@ impl Function {
             },
 
             Function::Screenshot => {
-                // Give the launcher a moment to disappear before selecting.
+                // Give the launcher a moment to disappear before the screen is frozen.
                 thread::spawn(|| {
                     thread::sleep(std::time::Duration::from_millis(350));
                     crate::app::screenshot::trigger_capture();
+                });
+            }
+
+            Function::Capture { mode, delay } => {
+                let (mode, delay) = (mode.clone(), delay.to_string());
+                thread::spawn(move || {
+                    thread::sleep(std::time::Duration::from_millis(350));
+                    crate::snap::spawn(&[&mode, "--delay", &delay]);
                 });
             }
 
