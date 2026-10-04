@@ -13,6 +13,7 @@ mod persist;
 mod platform;
 mod quit;
 mod recorder;
+mod snap;
 mod styles;
 mod unit_conversion;
 mod utils;
@@ -45,6 +46,13 @@ fn main() -> iced::Result {
         if let Some(path) = cli_args.get(pos + 1) {
             crate::platform::linux::overlay_gtk::run(std::path::PathBuf::from(path));
         }
+        return Ok(());
+    }
+
+    // Screenshot overlay / annotation editor / OCR / pinned images: a
+    // short-lived GTK subprocess, so none of it stays resident.
+    if let Some(pos) = cli_args.iter().position(|a| a == "--snap") {
+        crate::snap::run(&cli_args[pos + 1..]);
         return Ok(());
     }
 
@@ -134,6 +142,9 @@ fn main() -> iced::Result {
     let recorder = Shortcut::parse(&config.recorder_hotkey.to_lowercase())
         .unwrap_or_else(|_| Shortcut::parse("super+shift+r").unwrap());
 
+    let ocr = Shortcut::parse(&config.ocr_hotkey.to_lowercase())
+        .unwrap_or_else(|_| Shortcut::parse("super+shift+t").unwrap());
+
     let mut shell_map = HashMap::new();
 
     for shell in &config.shells {
@@ -149,6 +160,7 @@ fn main() -> iced::Result {
         clipboard_hotkey: cbhist,
         screenshot_hotkey: screenshot,
         recorder_hotkey: recorder,
+        ocr_hotkey: ocr,
         shells: shell_map,
         handle: None,
     };

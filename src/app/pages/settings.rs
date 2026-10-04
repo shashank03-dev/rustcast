@@ -215,6 +215,62 @@ fn general_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'stat
     );
 
     let theme_clone = theme.clone();
+    let shot_hotkey = settings_row_with_reset(
+        settings_item_column([
+            settings_hint_text(theme.clone(), "Screenshot hotkey"),
+            settings_input("Screenshot Hotkey", &config.screenshot_hotkey)
+                .on_input(|input| {
+                    Message::SetConfig(SetConfigFields::ScreenshotHotkey(input.clone()))
+                })
+                .on_submit(Message::WriteConfig(false))
+                .width(Length::Fill)
+                .style(move |_, status| settings_text_input_item_style(&theme_clone, status))
+                .into(),
+            notice_item(
+                theme.clone(),
+                "Select an area or click a window, then annotate",
+            ),
+        ]),
+        ResetField::ScreenshotHotkey,
+        theme.clone(),
+    );
+
+    let theme_clone = theme.clone();
+    let ocr_hotkey = settings_row_with_reset(
+        settings_item_column([
+            settings_hint_text(theme.clone(), "Copy text from screen (OCR) hotkey"),
+            settings_input("OCR Hotkey", &config.ocr_hotkey)
+                .on_input(|input| Message::SetConfig(SetConfigFields::OcrHotkey(input.clone())))
+                .on_submit(Message::WriteConfig(false))
+                .width(Length::Fill)
+                .style(move |_, status| settings_text_input_item_style(&theme_clone, status))
+                .into(),
+            notice_item(theme.clone(), "Select any text on screen to copy it"),
+        ]),
+        ResetField::OcrHotkey,
+        theme.clone(),
+    );
+
+    let theme_clone = theme.clone();
+    let ocr_languages = settings_row_with_reset(
+        settings_item_column([
+            settings_hint_text(theme.clone(), "OCR languages"),
+            settings_input("eng", &config.screenshot.ocr_languages)
+                .on_input(|input| Message::SetConfig(SetConfigFields::OcrLanguages(input.clone())))
+                .on_submit(Message::WriteConfig(false))
+                .width(Length::Fill)
+                .style(move |_, status| settings_text_input_item_style(&theme_clone, status))
+                .into(),
+            notice_item(
+                theme.clone(),
+                "Tesseract codes joined with \"+\", e.g. eng+hin (needs tesseract-ocr-hin)",
+            ),
+        ]),
+        ResetField::OcrLanguages,
+        theme.clone(),
+    );
+
+    let theme_clone = theme.clone();
     let placeholder_setting = settings_row_with_reset(
         settings_item_column([
             settings_hint_text(theme.clone(), "Set the rustcast placeholder"),
@@ -393,6 +449,9 @@ fn general_tab(config: Box<Config>, theme: crate::config::Theme) -> Column<'stat
     Column::from_iter([
         hotkey,
         cb_hotkey,
+        shot_hotkey,
+        ocr_hotkey,
+        ocr_languages,
         placeholder_setting,
         search,
         debounce,

@@ -7,9 +7,10 @@
 //!
 //! Interaction:
 //! - drag the thumbnail → drops `text/uri-list` (a `file://` path) + `image/png`
-//! - right-click → copies the file path as text (for terminal programs that
-//!   load images by path)
-//! - auto-dismisses after a timeout
+//! - double-click → open it in the annotation editor
+//! - right-click → Copy Image / Copy Path / Annotate / Pin / Copy Text (OCR) /
+//!   Show in Folder / Delete
+//! - auto-dismisses after a timeout (paused while the pointer is over it)
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -127,32 +128,126 @@ pub fn run(path: PathBuf) {
         evbox.connect_drag_end(move |_w, _ctx| window.close());
     }
 
-    // Right-click → copy the file path as clipboard text, then dismiss shortly
-    // after (giving the clipboard manager time to take ownership).
+    // Double-click → annotate; right-click → actions menu.
     {
         let path = path.clone();
         let window = window.clone();
         evbox.connect_button_press_event(move |_w, ev| {
-            if ev.button() == 3 {
-                let clipboard = gtk::Clipboard::get(&gdk::SELECTION_CLIPBOARD);
-                clipboard.set_text(&path.display().to_string());
-                clipboard.store();
-                let window = window.clone();
-                glib::timeout_add_local_once(Duration::from_millis(200), move || window.close());
-                glib::Propagation::Stop
-            } else {
-                glib::Propagation::Proceed
+            if ev.button() == 1 && ev.event_type() == gdk::EventType::DoubleButtonPress {
+                crate::snap::spawn(&["edit", &path.to_string_lossy()]);
+                window.close();
+                return glib::Propagation::Stop;
             }
+            if ev.button() == 3 {
+                actions_menu(&window, &path, ev);
+                return glib::Propagation::Stop;
+            }
+            glib::Propagation::Proceed
         });
     }
 
-    // Auto-dismiss.
+    // Auto-dismiss, but not while the pointer rests on the thumbnail or its
+    // menu is open.
     {
+        let hovered = std::rc::Rc::new(std::cell::Cell::new(false));
+        evbox.add_events(gdk::EventMask::ENTER_NOTIFY_MASK | gdk::EventMask::LEAVE_NOTIFY_MASK);
+        evbox.connect_enter_notify_event({
+            let hovered = hovered.clone();
+            move |_, _| {
+                hovered.set(true);
+                glib::Propagation::Proceed
+            }
+        });
+        evbox.connect_leave_notify_event({
+            let hovered = hovered.clone();
+            move |_, ev| {
+                // Leaving into the popup menu is an "inferior" crossing.
+                if ev.detail() != gdk::NotifyType::Inferior {
+                    hovered.set(false);
+                }
+                glib::Propagation::Proceed
+            }
+        });
         let window = window.clone();
-        glib::timeout_add_local_once(AUTO_DISMISS, move || window.close());
+        let deadline = std::cell::Cell::new(std::time::Instant::now() + AUTO_DISMISS);
+        glib::timeout_add_local(Duration::from_millis(250), move || {
+            if hovered.get() || MENU_OPEN.with(|m| m.get()) {
+                deadline.set(std::time::Instant::now() + Duration::from_secs(3));
+            } else if std::time::Instant::now() >= deadline.get() {
+                window.close();
+                return glib::ControlFlow::Break;
+            }
+            glib::ControlFlow::Continue
+        });
     }
 
     window.connect_destroy(|_| gtk::main_quit());
     window.show_all();
     gtk::main();
+}
+
+thread_local! {
+    static MENU_OPEN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Right-click menu on the thumbnail.
+fn actions_menu(window: &gtk::Window, path: &std::path::Path, ev: &gdk::EventButton) {
+    let menu = gtk::Menu::new();
+    let p = path.to_string_lossy().to_string();
+    let add = |label: &str, close: bool, f: Box<dyn Fn()>| {
+        let item = gtk::MenuItem::with_label(label);
+        let window = window.clone();
+        item.connect_activate(move |_| {
+            f();
+            if close {
+                // Leave the clipboard owner a moment before exiting.
+                let window = window.clone();
+                glib::timeout_add_local_once(Duration::from_millis(200), move || window.close());
+            }
+        });
+        menu.append(&item);
+    };
+    add("Copy Image", true, {
+        let path = path.to_path_buf();
+        Box::new(move || crate::snap::copy_image(&path))
+    });
+    add("Copy Path", true, {
+        let p = p.clone();
+        Box::new(move || {
+            let clipboard = gtk::Clipboard::get(&gdk::SELECTION_CLIPBOARD);
+            clipboard.set_text(&p);
+            clipboard.store();
+        })
+    });
+    add("Annotate…", true, {
+        let p = p.clone();
+        Box::new(move || crate::snap::spawn(&["edit", &p]))
+    });
+    add("Pin to Screen", true, {
+        let p = p.clone();
+        Box::new(move || crate::snap::spawn(&["pin", &p]))
+    });
+    add("Copy Text (OCR)", true, {
+        let p = p.clone();
+        Box::new(move || crate::snap::spawn(&["ocr-file", &p]))
+    });
+    add("Show in Folder", true, {
+        let path = path.to_path_buf();
+        Box::new(move || {
+            if let Some(dir) = path.parent() {
+                crate::snap::open_url(&dir.to_string_lossy());
+            }
+        })
+    });
+    menu.append(&gtk::SeparatorMenuItem::new());
+    add("Delete", true, {
+        let path = path.to_path_buf();
+        Box::new(move || {
+            let _ = std::fs::remove_file(&path);
+        })
+    });
+    MENU_OPEN.with(|m| m.set(true));
+    menu.connect_deactivate(|_| MENU_OPEN.with(|m| m.set(false)));
+    menu.show_all();
+    menu.popup_at_pointer(Some(ev));
 }

@@ -53,6 +53,7 @@ pub fn new(hotkeys: Hotkeys, config: &Config) -> (Tile, Task<Message>) {
     options.extend(App::basic_apps());
     info!("Loaded basic apps / default apps");
     options.extend(App::window_apps());
+    options.extend(App::capture_apps());
     info!("Loaded window tiling apps");
     options.par_sort_by_key(|x| x.display_name.len());
     let options = AppIndex::from_apps(options);
