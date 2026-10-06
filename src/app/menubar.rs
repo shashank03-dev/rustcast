@@ -11,6 +11,7 @@ use tray_icon::menu::{
 
 use crate::{
     app::{Message, tile::ExtSender},
+    commands::Function,
     config::Config,
     platform::launching::Shortcut,
     utils::open_url,
@@ -31,23 +32,54 @@ pub fn menu_builder(config: Config, sender: ExtSender) -> Menu {
 
     init_event_handler(sender, shortcut);
 
-    Menu::with_items(&[
-        &version_item(),
-        &about_item(tray_image()),
-        &open_github_item(),
-        &PredefinedMenuItem::separator(),
-        &refresh_item(),
-        &open_item(),
-        &mode_item(modes),
-        &PredefinedMenuItem::separator(),
-        &open_issue_item(),
-        &get_help_item(),
-        &PredefinedMenuItem::separator(),
-        &open_settings_item(),
-        &hide_tray_icon(),
-        &quit_item(),
-    ])
-    .unwrap()
+    let header = version_item();
+    let open = item("show_rustcast", "Open RustCast");
+    let clipboard = item("open_clipboard", "Clipboard History");
+    let screenshot = item("take_screenshot", "Take Screenshot");
+    let ocr = item("copy_text", "Copy Text from Screen");
+    let recorder = item("open_recorder", "Screen Recorder");
+    let modes = (modes.len() > 1).then(|| mode_item(modes));
+    let preferences = item("open_preferences", "Preferences…");
+    let reload = item("refresh_rustcast", "Reload Config");
+    let star = item("open_github_page", "Star on GitHub");
+    let issue = item("open_issue_page", "Report an Issue…");
+    let help = item("open_help_page", "Help");
+    let about = about_item(tray_image());
+    let hide = item("hide_tray_icon", "Hide Tray Icon");
+    let quit = item("quit_rustcast", "Quit RustCast");
+    let (s1, s2, s3, s4) = (
+        PredefinedMenuItem::separator(),
+        PredefinedMenuItem::separator(),
+        PredefinedMenuItem::separator(),
+        PredefinedMenuItem::separator(),
+    );
+
+    let mut items: Vec<&dyn IsMenuItem> = vec![
+        &header,
+        &open,
+        &s1,
+        &clipboard,
+        &screenshot,
+        &ocr,
+        &recorder,
+        &s2,
+    ];
+    if let Some(modes) = &modes {
+        items.push(modes);
+    }
+    items.extend([
+        &preferences as &dyn IsMenuItem,
+        &reload,
+        &s3,
+        &star,
+        &issue,
+        &help,
+        &s4,
+        &about,
+        &hide,
+        &quit,
+    ]);
+    Menu::with_items(&items).unwrap()
 }
 
 pub fn tray_image() -> DynamicImage {
@@ -60,10 +92,8 @@ pub fn tray_image() -> DynamicImage {
 
 fn init_event_handler(sender: ExtSender, shortcut: Shortcut) {
     let runtime = Runtime::new().unwrap();
-    let shortcut = shortcut.clone();
 
     MenuEvent::set_event_handler(Some(move |x: MenuEvent| {
-        let shortcut = shortcut.clone();
         let sender = sender.clone();
         let sender = sender.0.clone();
         info!("Menubar event called: {}", x.id.0);
@@ -84,7 +114,7 @@ fn init_event_handler(sender: ExtSender, shortcut: Shortcut) {
                 runtime.spawn(async move {
                     sender
                         .clone()
-                        .try_send(Message::KeyPressed(shortcut.clone()))
+                        .try_send(Message::KeyPressed(shortcut))
                         .unwrap();
                 });
             }
@@ -98,6 +128,29 @@ fn init_event_handler(sender: ExtSender, shortcut: Shortcut) {
             }
             "open_github_page" => {
                 open_url(REPO_URL);
+            }
+            // The tool shortcuts reuse the rustcast:// actions the hotkeys use.
+            id @ ("open_clipboard" | "take_screenshot" | "copy_text" | "open_recorder") => {
+                let action = match id {
+                    "open_clipboard" => "clipboard",
+                    "take_screenshot" => "screenshot",
+                    "copy_text" => "ocr",
+                    _ => "recorder",
+                };
+                let uri = format!("rustcast://{action}");
+                runtime.spawn(async move {
+                    sender.clone().try_send(Message::UriReceived(uri)).unwrap();
+                });
+            }
+            // PredefinedMenuItem::quit is unsupported on Linux, so quit ourselves
+            // (this also finishes a running recording cleanly).
+            "quit_rustcast" => {
+                runtime.spawn(async move {
+                    sender
+                        .clone()
+                        .try_send(Message::RunFunction(Function::Quit))
+                        .unwrap();
+                });
             }
             id => {
                 if id.starts_with("mode_switch_") {
@@ -117,12 +170,12 @@ fn init_event_handler(sender: ExtSender, shortcut: Shortcut) {
 }
 
 fn version_item() -> MenuItem {
-    let version = "RustCast: ".to_string() + option_env!("APP_VERSION").unwrap_or("Unknown");
-    MenuItem::new(version, false, None)
+    let version = "RustCast ".to_string() + option_env!("APP_VERSION").unwrap_or("");
+    MenuItem::new(version.trim_end(), false, None)
 }
 
-fn hide_tray_icon() -> MenuItem {
-    MenuItem::with_id("hide_tray_icon", "Hide Tray Icon", true, None)
+fn item(id: &str, label: &str) -> MenuItem {
+    MenuItem::with_id(id, label, true, None)
 }
 
 fn mode_item(modes: HashMap<String, String>) -> Submenu {
@@ -143,34 +196,6 @@ fn mode_item(modes: HashMap<String, String>) -> Submenu {
     Submenu::with_items("Modes", true, &items).unwrap()
 }
 
-fn open_item() -> MenuItem {
-    MenuItem::with_id("show_rustcast", "Toggle View", true, None)
-}
-
-fn open_github_item() -> MenuItem {
-    MenuItem::with_id("open_github_page", "Star on Github", true, None)
-}
-
-fn open_issue_item() -> MenuItem {
-    MenuItem::with_id("open_issue_page", "Report an Issue", true, None)
-}
-
-fn refresh_item() -> MenuItem {
-    MenuItem::with_id("refresh_rustcast", "Refresh", true, None)
-}
-
-fn open_settings_item() -> MenuItem {
-    MenuItem::with_id("open_preferences", "Open Preferences", true, None)
-}
-
-fn get_help_item() -> MenuItem {
-    MenuItem::with_id("open_help_page", "Help", true, None)
-}
-
-fn quit_item() -> PredefinedMenuItem {
-    PredefinedMenuItem::quit(Some("Quit"))
-}
-
 fn about_item(image: DynamicImage) -> PredefinedMenuItem {
     let about_metadata_builder = AboutMetadataBuilder::new()
         .name(Some("RustCast"))
@@ -179,12 +204,20 @@ fn about_item(image: DynamicImage) -> PredefinedMenuItem {
         ))
         .authors(Some(vec!["shashank03-dev".to_string()]))
         .credits(Some("shashank03-dev".to_string()))
-        .icon(Ico::from_rgba(image.as_bytes().to_vec(), image.width(), image.height()).ok())
+        .comments(Some("Productivity launcher for Linux"))
+        .icon({
+            // The tray PNG is 512 px; GTK's About dialog shows icons at their
+            // real size, so scale it down to a normal dialog icon.
+            let icon = image
+                .resize(128, 128, image::imageops::FilterType::Lanczos3)
+                .into_rgba8();
+            Ico::from_rgba(icon.as_raw().clone(), icon.width(), icon.height()).ok()
+        })
         .website(Some(REPO_URL))
         .license(Some("MIT"))
         .build();
 
-    PredefinedMenuItem::about(Some("About.."), Some(about_metadata_builder))
+    PredefinedMenuItem::about(Some("About RustCast"), Some(about_metadata_builder))
 }
 
 fn menubar_icon() -> Option<Vec<u8>> {
