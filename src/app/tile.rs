@@ -812,6 +812,83 @@ fn count_entries_in_dir(dir: impl AsRef<std::path::Path>) -> usize {
 #[cfg(test)]
 #[allow(clippy::items_after_test_module)]
 mod tests {
+
+    /// File-search benchmark on a real directory tree (not run by default).
+    ///
+    /// ```sh
+    /// RUSTCAST_BENCH_DIR=~ cargo test --release file_search_benchmark -- --ignored --nocapture
+    /// ```
+    ///
+    /// Times what RustCast actually does: one `find` pass that builds the
+    /// in-memory index, then per-keystroke queries answered from that index.
+    /// For comparison it also times walking the disk on every keystroke.
+    #[test]
+    #[ignore]
+    fn file_search_benchmark() {
+        use std::time::Instant;
+        let dir = std::env::var("RUSTCAST_BENCH_DIR").expect("set RUSTCAST_BENCH_DIR");
+        let dir = dir.replace('~', &std::env::var("HOME").unwrap_or_default());
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let ms = |d: std::time::Duration| d.as_secs_f64() * 1000.0;
+        let median = |mut v: Vec<f64>| {
+            v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            v[v.len() / 2]
+        };
+
+        // Index build: one warm-up so every run reads from the page cache.
+        let dirs = vec![dir.clone()];
+        let _ = rt.block_on(build_index(&dirs, &dir)).unwrap();
+        let mut builds = Vec::new();
+        let mut entries = 0;
+        for _ in 0..5 {
+            let t = Instant::now();
+            let index = rt.block_on(build_index(&dirs, &dir)).unwrap();
+            builds.push(ms(t.elapsed()));
+            entries = index.len();
+        }
+        let index = rt.block_on(build_index(&dirs, &dir)).unwrap();
+        println!("entries indexed:          {entries}");
+        println!("index build (median of 5): {:.0} ms", median(builds));
+
+        // Typing "invoice" one key at a time, plus a rare and a missing query.
+        let mut queries: Vec<String> = (2..="invoice".len())
+            .map(|n| "invoice"[..n].to_string())
+            .collect();
+        queries.push("acme-invoice-0042".into());
+        queries.push("zzqx-no-such-file".into());
+        println!("\n{:<20} {:>9} {:>12}", "query", "results", "median ms");
+        let mut all = Vec::new();
+        for q in &queries {
+            let mut runs = Vec::new();
+            let mut n = 0;
+            for _ in 0..30 {
+                let t = Instant::now();
+                n = filter_index(&index, q, &dir).len();
+                runs.push(ms(t.elapsed()));
+            }
+            let m = median(runs);
+            all.push(m);
+            println!("{q:<20} {n:>9} {m:>12.2}");
+        }
+        all.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        println!("per-keystroke worst:      {:.2} ms", all.last().unwrap());
+
+        // Baseline: walking the disk on every keystroke (find -iname).
+        let mut walks = Vec::new();
+        for _ in 0..5 {
+            let t = Instant::now();
+            let out = std::process::Command::new("find")
+                .args([dir.as_str(), "-iname", "*invoice*"])
+                .output()
+                .unwrap();
+            walks.push(ms(t.elapsed()));
+            assert!(out.status.success());
+        }
+        println!(
+            "disk walk per keystroke:  {:.0} ms (find -iname, warm cache)",
+            median(walks)
+        );
+    }
     use super::*;
     use crate::app::apps::{App, AppCommand};
     use crate::commands::Function;
