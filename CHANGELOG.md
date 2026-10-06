@@ -5,7 +5,8 @@ Versions follow semantic versioning.
 
 ## [0.7.2] - 2026-10-06
 
-The first public release.
+The first public release of RustCast for Linux, a fork of RustCast by Umang Surana
+(https://github.com/RustCastLabs/rustcast), ported to Linux and extended.
 
 ### Added
 

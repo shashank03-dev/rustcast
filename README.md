@@ -25,6 +25,10 @@ to open apps, find files, do maths or just say what you want in plain words. It 
 ships a full screenshot studio, text recognition (OCR), a window-locking screen
 recorder and clipboard history, all in one small native app written in Rust.
 
+> RustCast for Linux is a fork of [RustCast](https://github.com/RustCastLabs/rustcast) by Umang Surana, the original
+> macOS launcher. This fork ports it to Linux and adds the screenshot studio, OCR,
+> screen recorder, Jev and clipboard history.
+
 <p align="center">
   <img src="assets/readme/launcher.webp" alt="Searching apps and doing maths in the RustCast launcher" width="100%">
 </p>
@@ -391,6 +395,13 @@ Bug reports, ideas and pull requests are all welcome.
 
 If RustCast saves you time, a ⭐ helps other people find it.
 
+## Acknowledgements
+
+RustCast for Linux builds on [RustCast](https://github.com/RustCastLabs/rustcast) by **Umang Surana**, the original
+open-source launcher for macOS. Thank you for making it open source; this project
+wouldn't exist without it.
+
 ## License
 
-RustCast is released under the [MIT License](LICENSE.md).
+RustCast is released under the [MIT License](LICENSE.md). The original RustCast
+copyright notice is kept in the license file.

@@ -203,7 +203,9 @@ fn about_item(image: DynamicImage) -> PredefinedMenuItem {
             option_env!("APP_VERSION").unwrap_or("Unknown Version"),
         ))
         .authors(Some(vec!["shashank03-dev".to_string()]))
-        .credits(Some("shashank03-dev".to_string()))
+        .credits(Some(
+            "Based on RustCast by Umang Surana (github.com/RustCastLabs/rustcast)".to_string(),
+        ))
         .comments(Some("Productivity launcher for Linux"))
         .icon({
             // The tray PNG is 512 px; GTK's About dialog shows icons at their

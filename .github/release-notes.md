@@ -4,6 +4,9 @@ A Rust-powered launcher for X11 and GNOME/Wayland (via XWayland). Open apps,
 files and commands with one keystroke, and get a full screenshot, OCR and
 screen-recording toolkit built in.
 
+Based on [RustCast](https://github.com/RustCastLabs/rustcast) by Umang Surana, the
+original macOS launcher, ported to Linux and extended.
+
 ## Highlights
 
 - **Launcher** (`Alt+Space`): apps, files, calculator, emoji search, web search.
