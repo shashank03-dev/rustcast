@@ -1,0 +1,25 @@
+<!doctype html><html><head><meta charset="utf-8"><title>search.rs — rustcast</title><style>
+body{margin:0;background:#14161b;color:#d4d7de;font-family:"DejaVu Sans Mono",monospace;font-size:17px;display:flex;height:100vh}
+.side{width:230px;background:#101216;border-right:1px solid #22252d;padding:18px 14px;font-family:Inter;font-size:14px;color:#8b909c}
+.side div{padding:6px 10px;border-radius:7px}.side .a{background:#1d2028;color:#e6e8ee}
+.main{flex:1;display:flex;flex-direction:column}.tabs{height:44px;border-bottom:1px solid #22252d;display:flex;align-items:end;padding-left:12px;font-family:Inter;font-size:14px}
+.tab{padding:10px 18px;background:#14161b;border:1px solid #22252d;border-bottom:none;border-radius:8px 8px 0 0;color:#e6e8ee}
+pre{margin:0;padding:22px 0;line-height:1.75}.ln{display:inline-block;width:56px;text-align:right;color:#4a4f5c;margin-right:24px}
+.k{color:#ff8a5c}.f{color:#7fb7ff}.t{color:#c9a8ff}.s{color:#9ee38f}.c{color:#6b7180;font-style:italic}.m{color:#ffd479}
+</style></head><body><div class="side"><div style="color:#e6e8ee;font-weight:600;margin-bottom:8px">RUSTCAST</div><div>▸ app</div><div>▸ recorder</div><div>▸ snap</div><div class="a">search.rs</div><div>main.rs</div><div>config.rs</div><div>jev.rs</div></div>
+<div class="main"><div class="tabs"><div class="tab">search.rs</div></div><pre>
+<span class="ln">1</span><span class="k">use</span> std::time::<span class="t">Instant</span>;
+<span class="ln">2</span>
+<span class="ln">3</span><span class="c">/// Fuzzy-rank every app against the query.</span>
+<span class="ln">4</span><span class="k">fn</span> <span class="f">rank</span>(apps: &amp;[<span class="t">App</span>], query: &amp;<span class="t">str</span>) -&gt; <span class="t">Vec</span>&lt;(<span class="t">u32</span>, &amp;<span class="t">App</span>)&gt; {
+<span class="ln">5</span>    <span class="k">let</span> started = <span class="t">Instant</span>::<span class="f">now</span>();
+<span class="ln">6</span>    <span class="k">let mut</span> hits: <span class="t">Vec</span>&lt;_&gt; = apps
+<span class="ln">7</span>        .<span class="f">iter</span>()
+<span class="ln">8</span>        .<span class="f">filter_map</span>(|app| <span class="f">score</span>(&amp;app.name, query).<span class="f">map</span>(|s| (s, app)))
+<span class="ln">9</span>        .<span class="f">collect</span>();
+<span class="ln">10</span>
+<span class="ln">11</span>    hits.<span class="f">sort_by</span>(|a, b| b.<span class="m">0</span>.<span class="f">cmp</span>(&amp;a.<span class="m">0</span>));
+<span class="ln">12</span>    <span class="f">println!</span>(<span class="s">"ranked {} apps in {:?}"</span>, hits.<span class="f">len</span>(), started.<span class="f">elapsed</span>());
+<span class="ln">13</span>    hits
+<span class="ln">14</span>}
+</pre></div></body></html>

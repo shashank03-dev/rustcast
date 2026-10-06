@@ -1,0 +1,40 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Orbit — Launch Metrics</title>
+<style>
+*{box-sizing:border-box;margin:0}body{font-family:Inter,sans-serif;background:#0f1115;color:#e8e9ee;padding:36px 44px}
+h1{font-size:26px;font-weight:700;letter-spacing:-.02em}.sub{color:#8a8f9c;font-size:14px;margin-top:4px}
+.top{display:flex;justify-content:space-between;align-items:end;margin-bottom:26px}
+.pill{background:#1b1e25;border:1px solid #2a2e38;border-radius:999px;padding:8px 14px;font-size:13px;color:#c9ccd6}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:20px}
+.card{background:#161920;border:1px solid #242833;border-radius:16px;padding:20px}
+.k{font-size:13px;color:#8a8f9c}.v{font-size:32px;font-weight:700;margin-top:8px;letter-spacing:-.02em}.d{font-size:13px;margin-top:6px;color:#4ade80}.d.n{color:#f87171}
+.row{display:grid;grid-template-columns:1.6fr 1fr;gap:16px}
+svg{width:100%;height:330px}
+table{width:100%;border-collapse:collapse;font-size:14px;margin-top:8px}th{text-align:left;color:#8a8f9c;font-weight:500;padding:9px 6px;border-bottom:1px solid #262a35}td{padding:10px 6px;border-bottom:1px solid #1f232c}
+td.num{text-align:right;font-variant-numeric:tabular-nums}th.num{text-align:right}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px}
+.bar{height:8px;border-radius:9px;background:#252a35;margin-top:12px;overflow:hidden}.bar i{display:block;height:100%;background:linear-gradient(90deg,#f2542d,#ff9a5c)}
+</style></head><body>
+<div class="top"><div><h1>Launch Metrics</h1><div class="sub">Orbit · last 30 days</div></div><div class="pill">Sep 6 – Oct 5, 2026 ▾</div></div>
+<div class="kpis">
+<div class="card"><div class="k">Active users</div><div class="v">48,210</div><div class="d">▲ 18.4%</div></div>
+<div class="card"><div class="k">Signups</div><div class="v">6,932</div><div class="d">▲ 32.1%</div></div>
+<div class="card"><div class="k">Conversion</div><div class="v">4.87%</div><div class="d">▲ 0.6 pts</div></div>
+<div class="card"><div class="k">Churn</div><div class="v">1.9%</div><div class="d n">▼ 0.3 pts</div></div>
+</div>
+<div class="row">
+<div class="card"><div class="k">Daily active users</div>
+<svg viewBox="0 0 600 250" preserveAspectRatio="none"><defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f2542d" stop-opacity=".45"/><stop offset="1" stop-color="#f2542d" stop-opacity="0"/></linearGradient></defs>
+<g stroke="#232733"><line x1="0" y1="60" x2="600" y2="60"/><line x1="0" y1="120" x2="600" y2="120"/><line x1="0" y1="180" x2="600" y2="180"/></g>
+<path d="M0,200 C40,190 70,170 110,175 S180,150 220,140 S290,150 330,120 S400,95 440,90 S520,60 560,40 L600,30 L600,250 L0,250Z" fill="url(#g)"/>
+<path d="M0,200 C40,190 70,170 110,175 S180,150 220,140 S290,150 330,120 S400,95 440,90 S520,60 560,40 L600,30" fill="none" stroke="#ff7a45" stroke-width="3"/>
+<circle cx="560" cy="40" r="6" fill="#fff" stroke="#f2542d" stroke-width="3"/></svg></div>
+<div class="card"><div class="k">Top channels</div>
+<table><tr><th>Channel</th><th class="num">Visits</th><th class="num">Conv.</th></tr>
+<tr><td><span class="dot" style="background:#f2542d"></span>Hacker News</td><td class="num">21,480</td><td class="num">6.2%</td></tr>
+<tr><td><span class="dot" style="background:#ff9a5c"></span>Reddit</td><td class="num">14,902</td><td class="num">5.1%</td></tr>
+<tr><td><span class="dot" style="background:#a78bfa"></span>X / Twitter</td><td class="num">11,365</td><td class="num">4.4%</td></tr>
+<tr><td><span class="dot" style="background:#60a5fa"></span>GitHub</td><td class="num">9,718</td><td class="num">7.9%</td></tr>
+<tr><td><span class="dot" style="background:#4ade80"></span>Newsletter</td><td class="num">4,231</td><td class="num">3.8%</td></tr>
+</table>
+<div class="k" style="margin-top:18px">Goal: 10k stars</div><div class="bar"><i style="width:72%"></i></div></div>
+</div></body></html>

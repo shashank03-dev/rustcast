@@ -1,0 +1,8 @@
+edit/node_modules/
+edit/public/
+edit/out/
+edit/stills/
+*.mp4
+*.mkv
+*.wav
+*.mp3

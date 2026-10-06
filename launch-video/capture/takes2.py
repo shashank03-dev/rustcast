@@ -1,0 +1,37 @@
+import sys,time
+sys.path.insert(0,'/tmp/claude-0/lv')
+from takes import reset, sh, Take
+def ocr():
+    reset(dash=False, code=True)
+    t=Take('ocr'); t.start(); t.wait(0.5)
+    t.move(1500,1000); t.wait(0.3)
+    t.key('super+shift+t','Super Shift T'); t.mark('freeze'); t.wait(1.1)
+    t.move(800,282); t.wait(0.25); t.mark('select')
+    t.drag(1800,842,dur=1.0); t.mark('ocr'); t.wait(3.2)
+    t.mark('result'); t.wait(2.0)
+    t.stop(0.3)
+def rec():
+    reset(dash=False)
+    sh('/tmp/claude-0/lv/chrome.sh file:///root/code/demo/code.html 1350 760 1100 560 "search.rs" >/dev/null')
+    sh('/tmp/claude-0/lv/chrome.sh file:///root/code/demo/dashboard.html 330 150 1900 980 "Launch Metrics" >/dev/null')
+    time.sleep(1.0); sh('DISPLAY=:99 xdotool mousemove 1700 1200')
+    t=Take('rec'); t.start(); t.wait(0.5)
+    t.key('super+shift+r','Super Shift R'); t.mark('panel'); t.wait(1.3)
+    t.move(1166,578); t.wait(0.3); t.mark('lock'); t.click(); t.wait(2.2)
+    t.mark('recording')
+    t.move(760,126); t.wait(0.3); t.mark('dragwin'); t.drag(1160,520,dur=1.5); t.wait(1.8)
+    t.move(1700,1180); t.wait(0.6)
+    t.key('super+shift+r','Super Shift R'); t.mark('stop'); t.wait(2.0)
+    t.stop(0.3)
+def clip():
+    reset()
+    for txt in ['make install-start','https://github.com/shashank03-dev/rustcast','#F2542D','git clone https://github.com/shashank03-dev/rustcast']:
+        sh(f"printf '%s' '{txt}' | DISPLAY=:99 xclip -selection clipboard"); time.sleep(0.8)
+    t=Take('clip'); t.start(); t.wait(0.5)
+    t.key('super+shift+c','Super Shift C'); t.mark('open'); t.wait(1.3)
+    for i in range(3): t.key('Down','↓'); t.wait(0.55)
+    t.mark('browse'); t.key('Right','→'); t.mark('text'); t.wait(0.9); t.key('Right','→'); t.mark('images'); t.wait(1.1)
+    t.key('Left','←'); t.wait(0.3); t.key('Left','←'); t.wait(0.6); t.key('Up','↑'); t.wait(0.4)
+    t.key('Return','↵'); t.mark('paste'); t.wait(1.0)
+    t.stop(0.3)
+if __name__=='__main__': globals()[sys.argv[1]]()
