@@ -125,7 +125,19 @@ This build targets **X11**. It runs natively on X11 sessions and on **GNOME/Wayl
 through XWayland** (no configuration needed). Global hotkeys, window tiling, paste
 injection, and drag-and-drop all rely on the X11 path.
 
-## Install (recommended)
+## Download
+
+Grab the latest `rustcast-v*-x86_64-linux.tar.gz` from
+[Releases](https://github.com/shashank03-dev/rustcast/releases), then:
+
+```sh
+tar xzf rustcast-v*-x86_64-linux.tar.gz && cd rustcast-v*-x86_64-linux
+./install.sh --start
+```
+
+It needs the runtime packages listed under [System packages](#system-packages).
+
+## Install from source (recommended for development)
 
 Installs RustCast as a background launcher: builds a release binary into
 `~/.local/bin`, adds an app-grid launcher and icon, and enables autostart so the

@@ -34,6 +34,8 @@ if [ "$DO_BUILD" -eq 1 ]; then
 fi
 
 BIN_SRC="target/release/rustcast"
+# A release tarball ships the prebuilt binary next to this script's parent.
+[ -f "$BIN_SRC" ] || [ ! -f rustcast ] || BIN_SRC="rustcast"
 [ -f "$BIN_SRC" ] || { echo "error: $BIN_SRC not found (build first)" >&2; exit 1; }
 
 echo "==> Installing binary to $BIN_DIR/rustcast"
