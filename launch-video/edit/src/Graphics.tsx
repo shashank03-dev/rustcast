@@ -445,11 +445,11 @@ export const Montage: React.FC<{items: MontageItem[]; end: number}> = ({items, e
 };
 
 // ---------------------------------------------------------------- end card
-export const EndCard: React.FC<{t0: number}> = ({t0}) => {
+export const EndCard: React.FC<{t0: number; total: number}> = ({t0, total}) => {
   const v = useV();
   const a = v - t0;
   if (a < 0) return null;
-  const fade = 1 - clamp((v - 59.15) / 0.8);
+  const fade = 1 - clamp((v - (total - 0.85)) / 0.8);
   const push = 1 + a * 0.012;
   const lp = easeOutExpo(clamp(a / 0.6));
   return (

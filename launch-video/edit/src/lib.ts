@@ -7,7 +7,7 @@ export const H = 1080;
 export const SW = 2560; // recorded screen size
 export const SH = 1440;
 
-export type TakeName = 'launcher' | 'jev' | 'snap' | 'ocr' | 'rec' | 'clip';
+export type TakeName = 'launcher' | 'jev' | 'snap' | 'ocr' | 'rec' | 'clip' | 'jev2' | 'emoji' | 'palette' | 'compare' | 'smart' | 'table' | 'pin';
 export type TakeData = {
   dur: number;
   cursor: [number, number, number][];

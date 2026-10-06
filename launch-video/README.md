@@ -13,7 +13,7 @@ mouse and types the way a person does.
 | `wall2.py` | Generates the wave wallpaper |
 | `chrome.sh` | Opens a demo page (`demo-pages/`) as an app window at a fixed position |
 | `drive.py` | Human-like driver: curved, eased mouse paths, natural typing rhythm. Records with `ffmpeg x11grab` (pointer hidden) and logs every cursor position, click, key and marker against wall-clock time |
-| `takes.py`, `takes2.py` | One function per feature take: `launcher`, `jev`, `snap`, `ocr`, `rec`, `clip` |
+| `takes.py`, `takes2.py`, `takes3.py` | One function per feature take: `launcher`, `jev`, `jev2`, `emoji`, `snap`, `pin`, `palette`, `compare`, `ocr`, `table`, `smart`, `rec`, `clip` |
 | `norm.py` | Converts a take to constant 60 fps and aligns its event log to the video |
 | `analyze_song.py` | Tempo, beat grid and per-second energy of the soundtrack (librosa) |
 
