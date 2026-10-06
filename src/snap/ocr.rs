@@ -805,12 +805,12 @@ mod tests {
     #[test]
     fn smart_actions_find_useful_things() {
         let s = smart_actions(
-            "Mail hello@example.com or visit https://rustcast.app, docs at github.com/x. \
+            "Mail hello@example.com or visit https://example.com, docs at example.org/x. \
              Call +91 98765 43210. Accent #0a84ff",
         );
         assert!(s.contains(&Smart::Email("hello@example.com".into())));
-        assert!(s.contains(&Smart::Link("https://rustcast.app".into())));
-        assert!(s.contains(&Smart::Link("https://github.com/x".into())));
+        assert!(s.contains(&Smart::Link("https://example.com".into())));
+        assert!(s.contains(&Smart::Link("https://example.org/x".into())));
         assert!(s.contains(&Smart::Phone("+91 98765 43210".into())));
         assert!(s.contains(&Smart::Color("#0A84FF".into())));
         assert!(!s.iter().any(|x| matches!(x, Smart::Math(..))));

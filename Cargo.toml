@@ -4,8 +4,8 @@ version = "0.7.2"
 edition = "2024"
 license = "MIT"
 description = "RustCast - Productivity launcher for Linux (X11/XWayland)"
-homepage = "https://rustcast.app"
-repository = "https://github.com/RustCastLabs/rustcast"
+homepage = "https://github.com/shashank03-dev/rustcast"
+repository = "https://github.com/shashank03-dev/rustcast"
 
 [dependencies]
 arboard = "3.6.1"

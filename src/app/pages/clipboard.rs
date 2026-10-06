@@ -478,9 +478,7 @@ mod tests {
 
     #[test]
     fn links_are_detected() {
-        assert!(is_link(
-            "https://github.com/shashank03-dev/scratch-model-lanox.git"
-        ));
+        assert!(is_link("https://github.com/shashank03-dev/rustcast.git"));
         assert!(is_link("  example.com "));
         assert!(!is_link("wrote model_meta.json - 398 chars"));
         assert!(!is_link("A892-2B4B"));

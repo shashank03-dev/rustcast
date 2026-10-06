@@ -2,10 +2,10 @@
   <img src="assets/brand/rustcast-mark-animated.svg" width="144" alt="RustCast logo">
 </p>
 
-CS# RustCast — Linux port (X11 / XWayland)
+# RustCast for Linux (X11 / XWayland)
 
-A faithful Linux port of [RustCast](https://github.com/RustCastLabs/rustcast), the
-Rust-powered productivity launcher, plus these new features:
+A Rust-powered productivity launcher for Linux: apps, files, commands and maths
+from one keystroke, plus:
 
 1. **Clipboard history** — everything you copy (text + images) is stored and shown
    on a hotkey (`Super+Shift+C`) in a full-size view: cards with type badges,

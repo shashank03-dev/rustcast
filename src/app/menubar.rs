@@ -16,7 +16,7 @@ use crate::{
     utils::open_url,
 };
 
-const DISCORD_LINK: &str = "https://discord.gg/bDfNYPbnC5";
+const REPO_URL: &str = "https://github.com/shashank03-dev/rustcast";
 
 use tokio::runtime::Runtime;
 
@@ -44,7 +44,6 @@ pub fn menu_builder(config: Config, sender: ExtSender) -> Menu {
         &get_help_item(),
         &PredefinedMenuItem::separator(),
         &open_settings_item(),
-        &discord_item(),
         &hide_tray_icon(),
         &quit_item(),
     ])
@@ -79,7 +78,7 @@ fn init_event_handler(sender: ExtSender, shortcut: Shortcut) {
                     .spawn(async move { sender.clone().try_send(Message::HideTrayIcon).unwrap() });
             }
             "open_issue_page" => {
-                open_url("https://github.com/RustCastLabs/rustcast/issues/new");
+                open_url(&format!("{REPO_URL}/issues/new"));
             }
             "show_rustcast" => {
                 runtime.spawn(async move {
@@ -89,11 +88,8 @@ fn init_event_handler(sender: ExtSender, shortcut: Shortcut) {
                         .unwrap();
                 });
             }
-            "open_discord" => {
-                open_url(DISCORD_LINK);
-            }
             "open_help_page" => {
-                open_url("https://github.com/RustCastLabs/rustcast/discussions/new?category=q-a");
+                open_url(&format!("{REPO_URL}#readme"));
             }
             "open_preferences" => {
                 runtime.spawn(async move {
@@ -101,7 +97,7 @@ fn init_event_handler(sender: ExtSender, shortcut: Shortcut) {
                 });
             }
             "open_github_page" => {
-                open_url("https://github.com/RustCastLabs/rustcast");
+                open_url(REPO_URL);
             }
             id => {
                 if id.starts_with("mode_switch_") {
@@ -123,10 +119,6 @@ fn init_event_handler(sender: ExtSender, shortcut: Shortcut) {
 fn version_item() -> MenuItem {
     let version = "RustCast: ".to_string() + option_env!("APP_VERSION").unwrap_or("Unknown");
     MenuItem::new(version, false, None)
-}
-
-fn discord_item() -> MenuItem {
-    MenuItem::with_id("open_discord", "RustCast discord", true, None)
 }
 
 fn hide_tray_icon() -> MenuItem {
@@ -185,10 +177,10 @@ fn about_item(image: DynamicImage) -> PredefinedMenuItem {
         .version(Some(
             option_env!("APP_VERSION").unwrap_or("Unknown Version"),
         ))
-        .authors(Some(vec!["Unsecretised".to_string()]))
-        .credits(Some("Unsecretised".to_string()))
+        .authors(Some(vec!["shashank03-dev".to_string()]))
+        .credits(Some("shashank03-dev".to_string()))
         .icon(Ico::from_rgba(image.as_bytes().to_vec(), image.width(), image.height()).ok())
-        .website(Some("https://rustcast.app"))
+        .website(Some(REPO_URL))
         .license(Some("MIT"))
         .build();
 
