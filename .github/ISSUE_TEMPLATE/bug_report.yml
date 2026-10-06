@@ -1,0 +1,75 @@
+name: Bug report
+description: Something doesn't work the way it should
+title: "[Bug]: "
+labels: [bug, needs triage]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for taking the time to report this. The more exact the steps, the faster it gets fixed.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of RustCast?
+      options:
+        - Launcher (search, apps, files, calculator, emoji)
+        - Jev commands
+        - Screenshots / annotation editor
+        - Copy text from screen (OCR)
+        - Screen recorder
+        - Clipboard history
+        - Tray icon / menu
+        - Install / update
+        - Something else
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Press Alt+Space
+        2. Type ...
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: RustCast version
+      description: Shown at the top of the tray menu.
+      placeholder: "0.7.2"
+    validations:
+      required: true
+  - type: input
+    id: distro
+    attributes:
+      label: Distribution and desktop
+      placeholder: Ubuntu 24.04, GNOME 46
+    validations:
+      required: true
+  - type: dropdown
+    id: session
+    attributes:
+      label: Session type
+      description: "Run `echo $XDG_SESSION_TYPE` if you're not sure."
+      options: [Wayland, X11, Not sure]
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: The end of `/tmp/rustcast.log`, if anything looks related.
+      render: text
+  - type: textarea
+    id: media
+    attributes:
+      label: Screenshots or recording
+      description: Drag images or a short video here.

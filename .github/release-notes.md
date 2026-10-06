@@ -1,6 +1,8 @@
-The first public release of **RustCast for Linux**: a Rust-powered launcher for
-X11 and GNOME/Wayland (via XWayland). Open apps, files and commands with one
-keystroke, and get a full screenshot, OCR and screen-recording toolkit.
+🎉 **The first public release of RustCast for Linux.**
+
+A Rust-powered launcher for X11 and GNOME/Wayland (via XWayland). Open apps,
+files and commands with one keystroke, and get a full screenshot, OCR and
+screen-recording toolkit built in.
 
 ## Highlights
 

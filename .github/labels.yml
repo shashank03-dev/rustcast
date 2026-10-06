@@ -1,0 +1,67 @@
+# Synced to the repository by .github/workflows/labels.yml.
+- name: bug
+  color: d73a4a
+  description: Something isn't working
+- name: enhancement
+  color: a2eeef
+  description: New feature or request
+- name: needs triage
+  color: fbca04
+  description: Not looked at yet
+- name: documentation
+  color: 0075ca
+  description: README, docs or comments
+- name: question
+  color: d876e3
+  description: Further information is requested
+- name: good first issue
+  color: 7057ff
+  description: Good for newcomers
+- name: help wanted
+  color: 008672
+  description: Extra attention is needed
+- name: duplicate
+  color: cfd3d7
+  description: This issue or pull request already exists
+- name: invalid
+  color: e4e669
+  description: This doesn't seem right
+- name: wontfix
+  color: ffffff
+  description: This will not be worked on
+- name: priority:high
+  color: b60205
+  description: Breaks a core workflow
+- name: area:launcher
+  color: f2542d
+  description: Search, apps, files, calculator, emoji
+- name: area:jev
+  color: f2542d
+  description: The plain-words command operator
+- name: area:screenshot
+  color: f2542d
+  description: Capture, annotation editor, pin, beautify, thumbnail
+- name: area:ocr
+  color: f2542d
+  description: Copy text from screen, code and table modes
+- name: area:recorder
+  color: f2542d
+  description: Screen recorder
+- name: area:clipboard
+  color: f2542d
+  description: Clipboard history
+- name: area:tray
+  color: f2542d
+  description: Tray icon and menu
+- name: area:install
+  color: f2542d
+  description: Install scripts, packaging and releases
+- name: platform:wayland
+  color: 5319e7
+  description: Only happens on a Wayland session
+- name: platform:x11
+  color: 5319e7
+  description: Only happens on an X11 session
+- name: dependencies
+  color: 0366d6
+  description: Updates a dependency

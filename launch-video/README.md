@@ -41,3 +41,14 @@ the soundtrack, which is not redistributed here. Rebuild it with the capture scr
 npm i
 npx remotion render src/index.ts Launch out/rustcast-launch.mp4 --codec=h264 --crf=16
 ```
+
+## README clips
+
+`edit/src/Readme.tsx` renders the feature clips in `assets/readme/` from the same takes
+(Screen Studio framing, real cursor and keycaps) plus the banner / social preview:
+
+```sh
+npx remotion render src/index.ts readme-snap readme/snap.mp4 --codec=h264 --crf=14
+ffmpeg -i readme/snap.mp4 -vf "fps=20,scale=1200:-1" -c:v libwebp_anim -quality 74 -loop 0 snap.webp
+node rstill.mjs banner:0:banner.png
+```

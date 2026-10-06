@@ -1,0 +1,32 @@
+name: Labels
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/labels.yml
+      - .github/workflows/labels.yml
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create or update labels
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY' > labels.tsv
+          import yaml
+          for l in yaml.safe_load(open(".github/labels.yml")):
+              print("\t".join([l["name"], str(l["color"]), l.get("description", "")]))
+          PY
+          while IFS=$'\t' read -r name color desc; do
+            gh label create "$name" --color "$color" --description "$desc" --force
+          done < labels.tsv
+          # The old issue templates applied this label; triage now uses "needs triage"
+          gh label delete "not assigned" --yes 2>/dev/null || true

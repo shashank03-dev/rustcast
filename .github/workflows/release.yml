@@ -1,15 +1,19 @@
 name: Release
 
+# A release is published for every new version in Cargo.toml:
+# - push to main that changes the version -> builds, tags v<version>, publishes
+# - pushing a v<version> tag does the same
+# - running the workflow by hand publishes the current version if it isn't out yet
 on:
   push:
+    branches: [main]
+    paths:
+      - Cargo.toml
+      - .github/release-notes.md
+      - .github/workflows/release.yml
     tags:
       - "v*"
   workflow_dispatch:
-    inputs:
-      publish:
-        description: "Tag v<Cargo.toml version> on this commit and publish the release"
-        type: boolean
-        default: true
 
 permissions:
   contents: write
@@ -18,8 +22,36 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  check:
+    name: Is this version released?
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.v.outputs.tag }}
+      publish: ${{ steps.v.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)"
+          tag="v$version"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "$tag" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match Cargo.toml version $version" >&2
+            exit 1
+          fi
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "$tag is already released"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
   build:
     name: Build and publish (x86_64 Linux)
+    needs: check
+    if: needs.check.outputs.publish == 'true'
     # The oldest supported runner, so the binary runs on older glibc too.
     runs-on: ubuntu-22.04
     timeout-minutes: 45
@@ -36,16 +68,6 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
 
-      - name: Read version
-        id: v
-        run: |
-          version="$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)"
-          echo "tag=v$version" >> "$GITHUB_OUTPUT"
-          if [ "$GITHUB_REF_TYPE" = tag ] && [ "v$version" != "$GITHUB_REF_NAME" ]; then
-            echo "Tag $GITHUB_REF_NAME does not match Cargo.toml version $version" >&2
-            exit 1
-          fi
-
       - name: Test
         run: cargo test --release --all-targets
 
@@ -56,20 +78,13 @@ jobs:
         run: scripts/release/package.sh
 
       - name: Publish release
-        if: startsWith(github.ref, 'refs/tags/') || inputs.publish
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.v.outputs.tag }}
+          tag_name: ${{ needs.check.outputs.tag }}
           target_commitish: ${{ github.sha }}
-          name: RustCast ${{ steps.v.outputs.tag }}
+          name: RustCast ${{ needs.check.outputs.tag }}
           body_path: .github/release-notes.md
+          make_latest: true
           files: |
             dist/*.tar.gz
             dist/*.tar.gz.sha256
-
-      - name: Upload build (unpublished manual runs)
-        if: ${{ !startsWith(github.ref, 'refs/tags/') && !inputs.publish }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: rustcast-linux
-          path: dist/*.tar.gz*

@@ -1,59 +1,78 @@
-# Welcome to the RustCast contributing guide!
+# Contributing to RustCast
 
-Thank you for wanting to contribute to RustCast!
+Thanks for helping make RustCast better! Bug reports, ideas, docs fixes and code are
+all welcome.
 
-There are 2 areas you can work on:
+## Ways to help
 
-1. Bug fixes
-1. New Features
-1. Help people in solving their github issues
+- **Report a bug** with the [bug form](https://github.com/shashank03-dev/rustcast/issues/new?template=bug_report.yml).
+  Your distro, desktop and session type (X11 or Wayland) matter a lot on Linux.
+- **Suggest a feature** with the [feature form](https://github.com/shashank03-dev/rustcast/issues/new?template=feature_request.yml).
+- **Pick up an issue** labelled `good first issue` or `help wanted`. Leave a comment so
+  nobody else starts on the same thing.
+- **Test on your desktop.** KDE, Xfce, Cinnamon and other distros need more testing, and
+  a short report is genuinely useful.
 
-For bug fixes, and helping people to solve their github issues: see
-[https://github.com/shashank03-dev/rustcast/issues](https://github.com/shashank03-dev/rustcast/issues). For features, see
-[The Planned Features in the README](README.md) or
-[The existing feature list](FEATURES.md)
+## Getting set up
 
-## Code Guidelines:
+```sh
+git clone https://github.com/shashank03-dev/rustcast
+cd rustcast
+sudo apt install libgtk-3-dev libxcb1-dev libxtst-dev tesseract-ocr ffmpeg   # see README for other distros
+cargo run
+```
 
-1. All code must be formatted with `cargo fmt`
-1. Code must not be malicious or be intended to harm someones device
-1. All features added must work as intended
-1. Code must compile...
-1. No AI Slop. AI Usage is allowed, but please limit it and ensure its a human
-   writing the descriptions and minimally ~75% of the code
-1. A video recording / screenshot would be an added bonus in getting your pull
-   request merged faster.
+Logs go to `/tmp/rustcast.log` in release builds and to the terminal in debug builds.
 
-## Codebase:
+## Before you open a pull request
+
+1. `cargo fmt --all`
+2. `cargo clippy --all-targets` with no new warnings
+3. `cargo test`
+4. Update the README or `docs/` if you changed behaviour, hotkeys or settings.
+5. For anything visible, add a screenshot or short recording to the PR.
+
+Keep pull requests focused: one fix or feature per PR is much easier to review.
+
+## Code guidelines
+
+- Code must compile, be formatted with `cargo fmt`, and do what it says.
+- No code that harms someone's device, data or privacy. Anything that goes online must
+  be opt-in and documented in the README's Privacy section.
+- Prefer small, readable functions and comments that explain *why*.
+- Heavy work (OCR, image editing, encoding) belongs in the short-lived helper processes
+  (`--snap`, `--rec-indicator`, `--overlay`), so the launcher stays light.
+- Using AI tools is fine, but you are responsible for every line: read it, test it, and
+  write the PR description yourself.
+
+## Project layout
 
 ```
-.
-├── bundling # Bundling related stuff, ignore for the most bit
-│   ├── entitlements.plist
-│   ├── icon.icns
-│   └── Info.plist
-├── docs # Website and documentation related stuff. If something new is added to config, then modify this as well before PR-ing
-├── Cargo.lock 
-├── Cargo.toml
-├── CONTRIBUTING.md # Contributing guidelines and codebase structure
-├── EXTENSIONS.md   # Discussions about extensions implementation
-├── LICENSE.md      # License file
-├── README.md       # Readme file
-├── FEATURES.md     # List of features currently implemented that should be updated when new 
-└── src
-    ├── app
-    │   ├── apps.rs         # Logic for the "apps" / commands that rustcast can perform
-    │   ├── menubar.rs      # All the code related to the tray icon / menu bar icon
-    │   ├── tile            # Logic for the tile (rustcast window)
-    │   │   ├── elm.rs      # Logic for the elm architecture of the rustcast window (New and View)
-    │   │   └── update.rs   # Logic for the updating (elm architecture update) of the rustcast window
-    │   └── tile.rs         # Tile definition
-    ├── app.rs              # All code related to the app
-    ├── calculator.rs       # Calculator logic 
-    ├── commands.rs         # Logic for different commands
-    ├── clipboard.rs        # Logic for the clipboard history feature of rustcast
-    ├── config.rs           # Configuration related stuff
-    ├── platform            # Linux (X11/XWayland) backend
-    ├── main.rs             # Start app
-    └── utils.rs            # Common functions that are used across files
+src/
+├── app/               launcher window, pages (clipboard, recorder, settings, emoji), tray menu
+│   ├── tile/          the launcher's state and update loop
+│   └── pages/         full-window pages
+├── snap/              screenshot overlay, editor, OCR, palette, compare, pin
+├── recorder/          X11 + portal capture, encoder, ● REC pill
+├── platform/linux/    desktop entries, hotkeys, window management, overlays
+├── jev.rs             the Jev command parser
+├── calculator.rs      maths
+├── unit_conversion.rs unit conversion
+├── clipboard.rs       clipboard history storage
+├── config.rs          config file schema and defaults
+└── main.rs            entry point and helper-process dispatch
+docs/                  example and default config files
+assets/                icons and brand files
+scripts/               install, uninstall, release packaging, logo generation
+launch-video/          scripts and Remotion project for the launch video
 ```
+
+## Releases
+
+Releases are automatic. Bump `version` in `Cargo.toml`, update `CHANGELOG.md` and
+`.github/release-notes.md`, and merge to `main`. The Release workflow builds the
+binary, tags `v<version>` and publishes the download.
+
+## Code of conduct
+
+Everyone taking part is expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md).

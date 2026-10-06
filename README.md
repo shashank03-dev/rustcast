@@ -1,201 +1,277 @@
 <p align="center">
-  <img src="assets/brand/rustcast-mark-animated.svg" width="144" alt="RustCast logo">
+  <img src="assets/readme/banner.webp" alt="RustCast: the launcher Linux deserves" width="100%">
 </p>
 
-# RustCast for Linux (X11 / XWayland)
+<p align="center">
+  <a href="https://github.com/shashank03-dev/rustcast/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/shashank03-dev/rustcast?style=flat-square&color=F2542D&label=release"></a>
+  <a href="https://github.com/shashank03-dev/rustcast/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/shashank03-dev/rustcast/ci.yml?branch=main&style=flat-square&label=CI"></a>
+  <a href="LICENSE.md"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-2b2b2f?style=flat-square"></a>
+  <img alt="Linux" src="https://img.shields.io/badge/Linux-X11%20%7C%20Wayland-2b2b2f?style=flat-square&logo=linux&logoColor=white">
+  <img alt="Built with Rust" src="https://img.shields.io/badge/built%20with-Rust-2b2b2f?style=flat-square&logo=rust&logoColor=white">
+</p>
 
-A Rust-powered productivity launcher for Linux: apps, files, commands and maths
-from one keystroke, plus:
+<p align="center">
+  <a href="#install"><b>Install</b></a> ·
+  <a href="#features"><b>Features</b></a> ·
+  <a href="#hotkeys"><b>Hotkeys</b></a> ·
+  <a href="#configuration"><b>Configuration</b></a> ·
+  <a href="#contributing"><b>Contributing</b></a>
+</p>
 
-1. **Clipboard history** — everything you copy (text + images) is stored and shown
-   on a hotkey (`Super+Shift+C`) in a full-size view: cards with type badges,
-   a large preview with details, All / Text / Images filters (`←` `→`), typing
-   to search, `↑` `↓` to browse, `Enter` to copy, `Ctrl+1…9` for quick picks. History is **persisted to disk** under
-   `~/.local/share/rustcast/clipboard` and survives restarts.
-2. **Screenshots with a built-in editor** — `Super+Shift+S` freezes the screen.
-   Drag to select an area or click a window (`F` for the whole screen); a magnifier
-   shows exact pixels and colours. Then annotate in place:
+<br>
 
-   | Key | Tool | Key | Tool |
-   |---|---|---|---|
-   | `A` | Arrow | `T` | Text (click again to re-edit) |
-   | `L` | Line | `N` | Numbered steps 1, 2, 3… |
-   | `R` | Rectangle (outline / filled) | `B` | Censor: pixelate · blur · solid |
-   | `O` | Ellipse | `H` | Spotlight (dim everything else) |
-   | `P` | Pen | `I` | Colour picker (copies `#RRGGBB`) |
-   | `M` | Highlighter | `V` | Select, move, recolour, delete |
+**RustCast** is a fast, keyboard-first launcher for Linux. Press <kbd>Alt</kbd> + <kbd>Space</kbd>
+to open apps, find files, do maths or just say what you want in plain words. It also
+ships a full screenshot studio, text recognition (OCR), a window-locking screen
+recorder and clipboard history, all in one small native app written in Rust.
 
-   `1`–`8` pick a colour, `Shift` draws straight lines / squares, arrow keys nudge
-   the selection, `Ctrl+Z` / `Ctrl+Shift+Z` undo / redo. Finish with
-   `Enter` / `Ctrl+C` (copy), `Ctrl+S` (save), `Ctrl+Shift+S` (save as),
-   `Ctrl+P` (**pin** it on top of all windows), `Ctrl+T` (**copy the text**, OCR),
-   `Ctrl+K` (**colour palette**) or `Ctrl+B` (**beautify**: gradient backdrop,
-   padding, rounded corners, shadow).
+<p align="center">
+  <img src="assets/readme/launcher.webp" alt="Searching apps and doing maths in the RustCast launcher" width="100%">
+</p>
 
-   Every capture then slides in as a **floating thumbnail in the bottom-left
-   corner** (above your dock/panel, on every workspace; several stack upwards).
-   **Drag it straight into any application**, click it to annotate, or hover for
-   **Copy · Save · Annotate · Pin · Copy Text · More** (Copy Code / Table, Extract
-   Colours, Compare with Previous, Show in Folder, Move to Trash). It stays while
-   you hover and otherwise leaves after `thumbnail_seconds` (0 = until closed), and
-   hides itself during the next capture so it never ends up in a screenshot.
-   Captures also land in the clipboard history.
+## Why RustCast
 
-3. **Copy text from anywhere (OCR)** — `Super+Shift+T`, select the text, done: it
-   is on your clipboard (and in clipboard history) and shown in a small window
-   where you can fix it, **translate** it or search it. Switch between **Text**,
-   **Code** (indentation and spacing rebuilt exactly) and **Table** (real columns —
-   pastes into spreadsheet cells, or *Save CSV*). Links, e-mail addresses, phone
-   numbers, colours and sums found in the text become one-click actions; QR codes
-   in the selection are decoded too. Works on dark themes and terminals, any Tesseract language
-   (`ocr_languages = "eng+hin"`). Built for low-end machines: the engine runs only
-   for the fraction of a second it needs (~40 MB, then fully released), the crop is
-   piped in as compact grayscale — nothing stays in memory.
+- **One shortcut for everything.** Apps, files, maths, emoji, screenshots, recordings and
+  your clipboard live behind the same keystroke.
+- **Native and light.** A single Rust binary. Heavy tools like OCR and the screenshot
+  editor start only when you use them and exit straight after, so the launcher itself
+  stays small.
+- **Private by default.** Everything runs on your machine. Text recognition happens
+  locally with Tesseract. Nothing is uploaded unless you ask for it.
+- **Made for Linux.** Works on X11 and on GNOME/Wayland through XWayland, follows your
+  desktop's apps, icons and file manager, and registers proper GNOME shortcuts.
 
-   More in the launcher: *Capture Window*, *Capture Full Screen*, *Quick Capture*
-   (copy instantly), *Capture Area in 3 / 5 / 10 Seconds*, *Copy Code / Table from
-   Screen*, *Pick Colours from Screen* (dominant colours as HEX / RGB / HSL or CSS
-   variables), *Compare Last Two Screenshots* (before/after slider, side by side,
-   or every changed area numbered with how much changed), *Open Screenshots Folder*.
+## Features
 
-   Or just ask Jev: `jev screenshot firefox` (brings that window up and captures
-   it), `jev screenshot full screen in 5 seconds`, `jev copy code from screen`,
-   `jev copy table`, `jev pick colors`, `jev compare screenshots`.
+### ⚡ Launcher
 
-4. **Jev, the command operator** — type `jev` and say what you want in plain words.
-   Jev turns it into actions you run with Enter:
+<img src="assets/readme/emoji.webp" alt="Emoji search in the launcher" width="46%" align="right">
 
-   | You type | Jev does |
-   |---|---|
-   | `jev open downloads` · `jev go to desktop/projects` | opens folders (desktop, documents, `~/code`, nested paths…) |
-   | `jev open report.pdf in documents` · `jev find invoice` | finds and opens files (things on your Desktop come first) |
-   | `jev launch firefox` · `jev switch to terminal` · `jev close spotify` | apps and windows |
-   | `jev create folder Ideas on desktop` · `jev make todo.txt` | makes folders / files and opens them |
-   | `jev show desktop` · `jev tile left` · `jev screenshot` | window management |
-   | `jev record firefox` · `jev record screen` · `jev stop recording` | the screen recorder |
-   | `jev add terminal to recording` | bring a window into a locked recording |
-   | `jev open downloads and firefox then show desktop` | several steps → a "Run all" row |
+Start typing and RustCast finds it:
 
-   Type just `jev` for examples.
-5. **Screen recorder** (`Super+Shift+R`) — opens a recorder view laid out for the
-   job: screen cards, a grid of window cards, switches for the options, and — while
-   recording — a live banner with the timer and a big Stop button:
-   - **Lock onto a window**: the recording follows that one app. Windows dragged
-     over it never show up, moving it around doesn't matter, and nothing turns
-     black. **Minimizing it keeps recording**: the window is hidden (invisible,
-     click-through, behind everything) but keeps rendering; activate it from the
-     dock to bring it back. It returns to minimized when you stop.
-   - **Bring other windows in**: while a locked recording runs, press
-     `Super+Shift+R` (or **＋ Add window** on the floating ● REC pill) and pick
-     *Add … to Recording*. Added windows are drawn over the locked window exactly
-     where you place them, or — with **Picture-in-Picture** — as tidy rounded
-     corner tiles. Switch layouts or remove windows mid-recording.
-   - **Full screen** recording of any monitor.
-   - **A locked recording shows only the windows you chose** — the locked one
-     and any you added. Nothing else ever gets in: not windows on top of it,
-     not RustCast, and not the mouse pointer while you're working in another
-     window (the pointer is drawn only when it's really over a recorded window).
-   - **RustCast never appears in its own recordings.** A locked recording only
-     reads the locked window, and RustCast's windows (launcher, ● REC pill,
-     screenshot thumbnails) can't be locked onto or added. In full-screen
-     recordings on X11 they are painted out of every frame and the windows
-     underneath are rebuilt, so you can use RustCast while recording.
-   - **Edge cases handled**: the locked window keeps recording when you switch
-     workspaces (it follows you invisibly and goes back to its workspace);
-     closing it ends the recording and saves the file; quitting RustCast,
-     logging out or `kill` finish the video properly and restore any hidden
-     window; a crash in the recorder can't leave a window invisible; video
-     length always matches real time, even on a slow machine; if the pill
-     crashes the recording continues (stop it with the hotkey).
-   - **Aspect lock** (default 1920×1080): every frame is fitted into a fixed
-     size, so resizing the window never changes the video.
-   - Cursor, audio, FPS, output folder (`~/Videos/RustCast`) — in the page's
-     quick toggles and Settings → Recorder.
-   - Pressing the hotkey while recording stops it; the file is announced in a
-     notification.
+- **Apps** from your desktop entries, ranked by how often you use them
+- **Files and folders** in the places you choose
+- **Maths** like `1280 * 3 / 4` and **unit conversion** like `10 km to miles`.
+  Press <kbd>Enter</kbd> to copy the answer.
+- **Emoji**: type `fire`, press <kbd>Enter</kbd>, paste 🔥
+- **Web search** for anything else, with your search engine of choice
+- **Commands** to capture, record, tile windows, quit apps and more
 
-   Needs `ffmpeg`. On **GNOME/Wayland**, full-screen and native-Wayland windows
-   are recorded through the system screen-sharing dialog (xdg-desktop-portal +
-   PipeWire, needs `gstreamer1.0-pipewire`); X11/XWayland windows are locked onto
-   directly and support minimizing and adding windows.
+<br clear="right">
 
-## Display server
+### 🗣️ Jev: say what you want
 
-This build targets **X11**. It runs natively on X11 sessions and on **GNOME/Wayland
-through XWayland** (no configuration needed). Global hotkeys, window tiling, paste
-injection, and drag-and-drop all rely on the X11 path.
+Type `jev` and describe what you need in plain words. Jev turns it into actions you
+run with <kbd>Enter</kbd>, and chains several steps into one.
 
-## Download
+<p align="center">
+  <img src="assets/readme/jev.webp" alt="Jev opening the Downloads folder and tiling it" width="100%">
+</p>
 
-Grab the latest `rustcast-v*-x86_64-linux.tar.gz` from
-[Releases](https://github.com/shashank03-dev/rustcast/releases), then:
+| You type | Jev does |
+|---|---|
+| `jev open downloads` · `jev go to desktop/projects` | Opens folders, even nested ones |
+| `jev open report.pdf in documents` · `jev find invoice` | Finds and opens files |
+| `jev launch firefox` · `jev switch to terminal` · `jev close spotify` | Controls apps and windows |
+| `jev create folder Ideas on desktop` · `jev make todo.txt` | Creates folders and files |
+| `jev tile left` · `jev show desktop` | Manages windows |
+| `jev screenshot firefox in 5 seconds` · `jev copy table from screen` | Captures |
+| `jev record firefox` · `jev stop recording` | Records |
+| `jev open downloads and firefox then show desktop` | Runs several steps at once |
+
+<details>
+<summary>More Jev examples</summary>
+<br>
+<p align="center"><img src="assets/readme/jev2.webp" alt="Several Jev commands in a row" width="100%"></p>
+</details>
+
+### 📸 Screenshot studio
+
+<kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>S</kbd> freezes the screen. Drag to select, click
+a window, or press <kbd>F</kbd> for the whole screen. A magnifier shows exact pixels and
+colours. Then mark it up right there, without opening another app.
+
+<p align="center">
+  <img src="assets/readme/snap.webp" alt="Selecting an area, drawing an arrow and numbered steps, adding a spotlight and beautifying the capture" width="100%">
+</p>
+
+| Key | Tool | Key | Tool |
+|:---:|---|:---:|---|
+| <kbd>A</kbd> | Arrow | <kbd>T</kbd> | Text (click again to edit) |
+| <kbd>L</kbd> | Line | <kbd>N</kbd> | Numbered steps 1, 2, 3… |
+| <kbd>R</kbd> | Rectangle (outline or filled) | <kbd>B</kbd> | Censor: pixelate, blur or solid |
+| <kbd>O</kbd> | Ellipse | <kbd>H</kbd> | Spotlight (dims everything else) |
+| <kbd>P</kbd> | Pen | <kbd>I</kbd> | Colour picker (copies `#RRGGBB`) |
+| <kbd>M</kbd> | Highlighter | <kbd>V</kbd> | Select, move, recolour, delete |
+
+Finish with <kbd>Enter</kbd> to copy, <kbd>Ctrl</kbd>+<kbd>S</kbd> to save,
+<kbd>Ctrl</kbd>+<kbd>P</kbd> to **pin** it above every window, or <kbd>Ctrl</kbd>+<kbd>B</kbd>
+to **beautify** it with a gradient backdrop, padding, rounded corners and a shadow.
+Every capture then floats as a thumbnail you can **drag straight into any app**.
+
+<table>
+  <tr>
+    <td width="50%"><img src="assets/readme/pin.webp" alt="Censoring a number and pinning the capture above other windows"><br><b>Censor and pin.</b> Hide private details, then keep the capture floating on top while you work.</td>
+    <td width="50%"><img src="assets/readme/palette.webp" alt="Picking a colour palette from part of the screen"><br><b>Colour palette.</b> Pick the dominant colours from any area as HEX, RGB, HSL or CSS variables.</td>
+  </tr>
+  <tr>
+    <td colspan="2"><img src="assets/readme/compare.webp" alt="Comparing two screenshots with a slider and a list of differences"><br><b>Compare.</b> Put your last two screenshots side by side, scrub a before/after slider, or see every changed area numbered.</td>
+  </tr>
+</table>
+
+### 🔤 Copy text from anything
+
+<kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>T</kbd>, select an area, and the text is on your
+clipboard. It works on images, videos, terminals, dark themes and PDFs, and it runs
+entirely on your machine.
+
+<p align="center">
+  <img src="assets/readme/ocr.webp" alt="Copying code from the screen with indentation kept" width="100%">
+</p>
+
+<table>
+  <tr>
+    <td width="50%"><img src="assets/readme/table.webp" alt="Turning a table on screen into real spreadsheet columns"><br><b>Tables.</b> Real rows and columns that paste into a spreadsheet, or save as CSV.</td>
+    <td width="50%"><img src="assets/readme/smart.webp" alt="Links, emails, phone numbers, colours and a QR code turned into buttons"><br><b>Smart actions.</b> Links, emails, phone numbers, colours, sums and QR codes become one-click buttons.</td>
+  </tr>
+</table>
+
+Choose **Text**, **Code** (indentation rebuilt exactly) or **Table**. Any Tesseract
+language works, e.g. `ocr_languages = "eng+hin"`.
+
+### 🎥 Screen recorder
+
+<kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>R</kbd> opens the recorder. Lock onto one window
+and the video shows **only that window**: anything you drag over it never appears, and
+neither does RustCast.
+
+<p align="center">
+  <img src="assets/readme/rec.webp" alt="Locking a recording onto one window while another window is dragged over it" width="100%">
+</p>
+
+- **Follows the window** when you move it, switch workspaces or even minimise it
+- **Add more windows** mid-recording, placed where they are or as picture-in-picture tiles
+- **Full-screen** recording of any monitor, with RustCast painted out of every frame
+- **Fixed output size** (1920×1080 by default), so resizing never changes the video
+- **Safe by design**: closing the window, logging out or a crash still saves the video
+  and restores your windows
+
+### 📋 Clipboard history
+
+<kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>C</kbd> shows everything you've copied, text and
+images, with a large preview. Filter with <kbd>←</kbd> <kbd>→</kbd>, type to search, and
+press <kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd> for quick picks. History is kept on disk,
+so it survives restarts.
+
+<p align="center">
+  <img src="assets/readme/clip.webp" alt="Browsing text and image items in the clipboard history" width="100%">
+</p>
+
+## Install
+
+### Download a release
+
+Get `rustcast-v*-x86_64-linux.tar.gz` from the
+[latest release](https://github.com/shashank03-dev/rustcast/releases/latest), then:
 
 ```sh
-tar xzf rustcast-v*-x86_64-linux.tar.gz && cd rustcast-v*-x86_64-linux
+tar xzf rustcast-v*-x86_64-linux.tar.gz
+cd rustcast-v*-x86_64-linux
 ./install.sh --start
 ```
 
-It needs the runtime packages listed under [System packages](#system-packages).
+This installs RustCast to `~/.local/bin`, adds it to your app grid, starts it on login
+and launches it now. Remove it any time with `./uninstall.sh`.
 
-## Install from source (recommended for development)
+### Build from source
 
-Installs RustCast as a background launcher: builds a release binary into
-`~/.local/bin`, adds an app-grid launcher and icon, and enables autostart so the
-tray is always running after login.
-
-```sh
-make install          # build + install + enable autostart
-make install-start    # same, and launch it right now
-make uninstall        # remove binary, launcher, autostart, GNOME hotkeys
-```
-
-On **GNOME** the global hotkeys are registered as GNOME custom keybindings
-(`gsettings`) instead of in-process X11 grabs, so they fire reliably on Wayland
-regardless of which app is focused. If your toggle key clashes with GNOME's
-window menu (the default `Alt+Space`), the install clears that conflict.
-
-## Build (manual)
+You need [Rust](https://www.rust-lang.org/tools/install) and the development packages below.
 
 ```sh
-cargo build --release
-./target/release/rustcast
+git clone https://github.com/shashank03-dev/rustcast
+cd rustcast
+make install-start     # build, install, enable autostart and launch
 ```
 
-### System packages
+`make install` does the same without launching, and `make uninstall` removes everything.
 
-Runtime/build dependencies (Debian/Ubuntu names):
+### Dependencies
+
+<details open>
+<summary><b>Ubuntu / Debian</b></summary>
 
 ```sh
-sudo apt install libgtk-3-dev libxcb1-dev libxtst-dev tesseract-ocr \
-                 ffmpeg gstreamer1.0-tools gstreamer1.0-pipewire libnotify-bin
+sudo apt install libgtk-3-dev libayatana-appindicator3-1 libxcb1-dev libxtst-dev \
+                 tesseract-ocr ffmpeg gstreamer1.0-pipewire libnotify-bin
 ```
+</details>
 
-- `libgtk-3-dev` / `ayatana-appindicator` — tray icon
-- `libxtst` — paste injection (XTEST)
-- `tesseract-ocr` — text recognition (add `tesseract-ocr-<lang>` for more
-  languages); optional `translate-shell` translates OCR text in place
-- `xdg-desktop-portal` — screen capture on Wayland (fallbacks: `grim`,
-  `gnome-screenshot`, `spectacle`); on X11 the screen is read directly
-- `ffmpeg` — video encoding for the screen recorder
-- `gstreamer1.0-pipewire` — Wayland (portal) recordings
-- X11/XCB — windowing, EWMH tiling, XDND drag source (via the pure-Rust `x11rb`)
+<details>
+<summary><b>Fedora</b></summary>
 
-## Default hotkeys
+```sh
+sudo dnf install gtk3-devel libayatana-appindicator-gtk3 libxcb-devel libXtst-devel \
+                 tesseract ffmpeg-free pipewire-gstreamer libnotify
+```
+</details>
 
-| Action | Hotkey |
+<details>
+<summary><b>Arch Linux</b></summary>
+
+```sh
+sudo pacman -S gtk3 libayatana-appindicator libxcb libxtst \
+               tesseract tesseract-data-eng ffmpeg gst-plugin-pipewire libnotify
+```
+</details>
+
+Release downloads only need the runtime libraries; the `-dev` / `-devel` packages are for
+building. Tesseract is only needed for OCR and ffmpeg only for the recorder.
+
+<details>
+<summary>What each package is for</summary>
+
+| Package | Used for |
 |---|---|
-| Toggle launcher | `Alt+Space` |
-| Clipboard history | `Super+Shift+C` |
-| Screenshot capture | `Super+Shift+S` |
-| Copy text from screen (OCR) | `Super+Shift+T` |
-| Screen recorder (again to stop) | `Super+Shift+R` |
+| GTK 3, Ayatana AppIndicator | Tray icon, screenshot editor, OCR window |
+| libxcb, libXtst | Windows, hotkeys, tiling, pasting (X11 / XWayland) |
+| Tesseract | Text recognition. Add `tesseract-ocr-<lang>` for more languages. |
+| ffmpeg | Encoding screen recordings |
+| PipeWire GStreamer plugin | Recording native Wayland windows through the system picker |
+| libnotify | "Recording saved" and similar notifications |
+| `translate-shell` (optional) | Translating recognised text in place |
+</details>
 
-All are configurable in `~/.config/rustcast/config.toml`.
+### Compatibility
 
-## Config
+| Desktop | Status |
+|---|---|
+| GNOME on Wayland (Ubuntu 24.04) | ✅ Tested. Hotkeys are registered as GNOME shortcuts. |
+| GNOME / other desktops on X11 | ✅ Native X11 path |
+| KDE Plasma, Xfce, Cinnamon | 🟡 Should work through X11 / XWayland. Reports welcome. |
+| Wayland-only compositors without XWayland | ❌ Not supported |
 
-The config file is created on first run at `~/.config/rustcast/config.toml`. It is
-the same schema as upstream RustCast, with these added fields:
+## Hotkeys
+
+| Action | Default |
+|---|---|
+| Open the launcher | <kbd>Alt</kbd> + <kbd>Space</kbd> |
+| Clipboard history | <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>C</kbd> |
+| Screenshot | <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>S</kbd> |
+| Copy text from screen | <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>T</kbd> |
+| Screen recorder (press again to stop) | <kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>R</kbd> |
+
+Change them in **Preferences** (tray menu) or in `~/.config/rustcast/config.toml`.
+Any capture mode can also be bound to a key of your own, such as <kbd>Print</kbd>, by
+running `rustcast rustcast://capture/<mode>` with `area`, `window`, `fullscreen`,
+`quick`, `ocr`, `ocr-code`, `ocr-table`, `palette` or `compare`.
+
+## Configuration
+
+RustCast creates `~/.config/rustcast/config.toml` on first run. Most settings are also
+in **Preferences**.
+
+<details>
+<summary>Screenshot and recorder settings</summary>
 
 ```toml
 screenshot_hotkey = "SUPER+SHIFT+S"
@@ -206,7 +282,7 @@ recorder_hotkey = "SUPER+SHIFT+R"
 save_dir = "~/Pictures/Screenshots"
 format = "png"                # png, jpg or webp
 jpeg_quality = 90
-enter_action = "copy"         # what Enter does in the overlay: copy or save
+enter_action = "copy"         # what Enter does in the editor: copy or save
 show_magnifier = true
 window_snap = true            # click a window to capture it (X11)
 ocr_languages = "eng"         # Tesseract codes, e.g. "eng+hin+deu"
@@ -226,52 +302,95 @@ show_indicator = true         # floating ● REC pill
 picture_in_picture = false    # layout for windows added to a locked recording
 output_dir = "~/Videos/RustCast"
 ```
+</details>
 
-## Tests
+<details>
+<summary>Search, theme and clipboard settings</summary>
 
-```sh
-cargo test                      # unit tests
-# Live recorder tests (need an X server + window manager, ffmpeg):
-Xvfb :99 & DISPLAY=:99 openbox &
-cargo build                     # also exercises the real ● REC pill
-DISPLAY=:99 cargo test recorder::live -- --ignored --test-threads=1
-```
+[`docs/default.toml`](docs/default.toml) shows the main defaults and
+[`docs/config.toml`](docs/config.toml) is an example with modes, aliases and shell
+commands. Anything you leave out of your config keeps its default.
+</details>
 
-The live tests create their own windows and check real video pixels: overlaps
-never leak into a locked recording, added windows do appear, RustCast windows
-never appear (locked or full screen, including ones opening mid-recording),
-minimized and other-workspace windows keep recording and are restored.
+## Privacy
+
+RustCast works offline. It only goes online when you ask it to:
+
+- **Web search** opens your browser with the search engine you configured
+- **Translate** in the OCR window uses `translate-shell` if installed, otherwise opens
+  Google Translate in your browser
+- **Jev's smart fallback** is off unless you add an AI Gateway key
+  (`AI_GATEWAY_API_KEY` or `~/.config/rustcast/ai_gateway_key`). When enabled, only the
+  sentence you typed is sent, and only when Jev can't work it out itself.
 
 ## Known limitations
 
-- **Calendar `Events` page** is empty; there is no portable Linux calendar source
-  wired up yet.
-- **Window tiling** moves other apps' windows via EWMH; this works for X11/XWayland
-  windows. Native-Wayland-only windows cannot be tiled (a Wayland security limit).
-- **Drag-and-drop** drops onto X11/XWayland targets; a drop target that is a
-  native-Wayland-only window may not accept the XDND drop.
-- **Recorder on Wayland**: native-Wayland windows go through the system picker,
-  so the minimize trick and adding windows only apply to X11/XWayland windows.
-  In a Wayland *full-screen* recording the compositor draws everything, so
-  RustCast can't paint itself out: the ● REC pill is not shown (stop with the
-  hotkey) and opening the launcher mid-recording will appear in the video.
-- App launching uses `.desktop` entries (`gio launch`) and `xdg-open`.
-- **Screenshots on Wayland** are taken through the desktop portal; clicking a
-  window to capture it needs X11 (on Wayland, drag around the window instead).
-  The overlay covers the monitor under the pointer.
+<details>
+<summary>Show the list</summary>
 
-Any capture mode can be bound to a key of your own (e.g. Print) by running
-`rustcast rustcast://capture/<mode>` with `<mode>` = `area`, `window`,
-`fullscreen`, `quick`, `ocr`, `ocr-code`, `ocr-table`, `palette` or `compare`.
+- **Window tiling** works for X11 / XWayland windows. Native-Wayland-only windows can't be
+  moved by other apps, by design.
+- **Drag and drop** from the capture thumbnail targets X11 / XWayland apps; some
+  native-Wayland-only apps may not accept the drop.
+- **Recorder on Wayland**: native-Wayland windows are recorded through the system picker,
+  so minimising and adding windows only work for X11 / XWayland windows. In a Wayland
+  full-screen recording the compositor draws everything, so the ● REC pill is hidden
+  (stop with the hotkey) and opening the launcher mid-recording will show in the video.
+- **Screenshots on Wayland** go through the desktop portal. Clicking a window to capture
+  it needs X11; on Wayland, drag around the window instead.
+- The **Events** page is empty for now; there's no portable Linux calendar source wired up yet.
+</details>
 
-## Brand
+## Development
 
-The RustCast mark lives in `assets/brand/`: an open "cast" arc on a graphite
-squircle, a glass lens that refracts the arc, and a rust ember at the arc's
-leading end. `rustcast-mark-animated.svg` is the motion version (the arc draws
-itself with the ember riding its head, the lens settles in, the ember glows);
-it shows the final frame when reduced motion is on.
+```sh
+cargo run                  # debug build
+cargo test                 # unit tests
+cargo clippy --all-targets
+cargo fmt --all
+```
 
-Regenerate everything from `scripts/brand/build_logo.py` (SVGs), then
-`node scripts/brand/render.mjs` (needs Playwright) for `docs/icon.png` and the
-`assets/icons/` set used by the tray, the About dialog and the desktop entry.
+<details>
+<summary>Live recorder tests</summary>
+
+These need an X server, a window manager and ffmpeg. They create their own windows and
+check real video pixels: overlaps never leak into a locked recording, added windows do
+appear, RustCast never appears, and minimised or other-workspace windows keep recording.
+
+```sh
+Xvfb :99 & DISPLAY=:99 openbox &
+cargo build
+DISPLAY=:99 cargo test recorder::live -- --ignored --test-threads=1
+```
+</details>
+
+<details>
+<summary>Project layout</summary>
+
+| Path | What's there |
+|---|---|
+| `src/app/` | Launcher window, pages (clipboard, recorder, settings, emoji) and tray menu |
+| `src/jev.rs` | The Jev command parser |
+| `src/snap/` | Screenshot overlay, annotation editor, OCR, palette, compare, pin |
+| `src/recorder/` | X11 and portal capture, encoder and the ● REC pill |
+| `src/platform/linux/` | Desktop entries, hotkeys, window management, overlays |
+| `assets/brand/` | The RustCast logo (`scripts/brand/` regenerates it) |
+| `launch-video/` | Scripts and the Remotion project behind the launch video |
+</details>
+
+## Contributing
+
+Bug reports, ideas and pull requests are all welcome.
+
+- Found a bug? [Open an issue](https://github.com/shashank03-dev/rustcast/issues/new/choose).
+  The form asks for your distro and session type, which makes it much faster to fix.
+- Want to help? Look for issues labelled
+  [`good first issue`](https://github.com/shashank03-dev/rustcast/labels/good%20first%20issue)
+  or [`help wanted`](https://github.com/shashank03-dev/rustcast/labels/help%20wanted).
+- Before opening a pull request, read [CONTRIBUTING.md](CONTRIBUTING.md).
+
+If RustCast saves you time, a ⭐ helps other people find it.
+
+## License
+
+RustCast is released under the [MIT License](LICENSE.md).
