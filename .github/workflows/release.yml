@@ -5,6 +5,11 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      publish:
+        description: "Tag v<Cargo.toml version> on this commit and publish the release"
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -31,11 +36,12 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
 
-      - name: Check the tag matches Cargo.toml
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Read version
+        id: v
         run: |
           version="$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)"
-          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "v$version" != "$GITHUB_REF_NAME" ]; then
             echo "Tag $GITHUB_REF_NAME does not match Cargo.toml version $version" >&2
             exit 1
           fi
@@ -50,17 +56,19 @@ jobs:
         run: scripts/release/package.sh
 
       - name: Publish release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/') || inputs.publish
         uses: softprops/action-gh-release@v2
         with:
-          name: RustCast ${{ github.ref_name }}
+          tag_name: ${{ steps.v.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: RustCast ${{ steps.v.outputs.tag }}
           body_path: .github/release-notes.md
           files: |
             dist/*.tar.gz
             dist/*.tar.gz.sha256
 
-      - name: Upload build (manual runs)
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+      - name: Upload build (unpublished manual runs)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') && !inputs.publish }}
         uses: actions/upload-artifact@v4
         with:
           name: rustcast-linux
